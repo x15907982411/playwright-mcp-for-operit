@@ -1,0 +1,12 @@
+# 排除与部署无关的文件
+node_modules/
+*.log
+.DS_Store
+
+# 本地运行时产物（截图/snapshot 落盘目录）
+.playwright-mcp/
+pw_*.png
+
+# 编辑器
+.idea/
+.vscode/
