@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "playwright_mcp": {
+      "command": "node",
+      "args": [
+        "/usr/lib/node_modules/@playwright/mcp/cli.js",
+        "--headless",
+        "--no-sandbox",
+        "--executable-path",
+        "/root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome"
+      ],
+      "autoApprove": [],
+      "disabled": false,
+      "env": {}
+    }
+  },
+  "pluginMetadata": {
+    "playwright_mcp": {
+      "author": "Microsoft",
+      "connectionType": "stdio",
+      "description": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
+      "disabled": false,
+      "id": "playwright_mcp",
+      "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwright_mcp",
+      "isInstalled": true,
+      "name": "Playwright MCP for Operit",
+      "repoUrl": "https://github.com/microsoft/playwright-mcp",
+      "type": "local",
+      "version": "0.0.79"
+    }
+  }
+}
