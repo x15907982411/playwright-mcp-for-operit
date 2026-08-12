@@ -1,6 +1,6 @@
 # 故障排查手册（TROUBLESHOOTING.md）
 
-> 全部来自 2026-08-07 实机部署踩坑记录，按出现频率排序。
+> 全部来自 2026-08-07 实机部署踩坑记录 + 2026-08-12 社区反馈（issue #1），按出现频率排序。
 
 ## 问题 1：apt-get update 报 404（binary-amd64/Packages）
 
@@ -52,10 +52,18 @@ CHROME=$(find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*ch
 
 ```bash
 cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp /root/mcp_plugins/
-# 然后 Operit 内 restart_mcp_with_logs → 预期 4/4 success
+# 然后 Operit 内 restart_mcp_with_logs → 预期全部 success
 ```
 
-## 问题 4：百度等站点弹出"安全验证"（headless 风控）
+## 问题 4：插件永远加载不上 / 日志出现 NPE（pluginMetadata 字段缺失）
+
+**现象**：配置照抄了"精简版"片段后，插件加载失败、重启报空指针；检查 Operit 日志可见 `MCPRepository.kt` 的 `metadata.copy()` 抛 NPE（`updatedAt` 为 null）。
+
+**根因**：`pluginMetadata.playwright_mcp` 缺少 `updatedAt`/`longDescription`/`logoUrl`/`installedTime` 等非空字段。早期版本 install.sh 只生成 3 个字段（type/connectionType/installedPath），手写覆盖会直接复现该问题。
+
+**修复（v1.0.1 已根治）**：使用仓库 [config/mcp_config.json](../config/mcp_config.json) 全字段模板，或直接跑新版 `install.sh`（自动生成 15 字段完整 pluginMetadata 并合并，原配置自动备份）。**不要再手写精简片段**。
+
+## 问题 5：百度等站点弹出"安全验证"（headless 风控）
 
 **现象**：navigate 正常，但执行搜索/提交后跳转到验证码页（`wappass.baidu.com/static/captcha/...`）。
 
@@ -66,7 +74,7 @@ cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp /root/mcp_plugins/
 - 用 `--storage-state` 预置带登录态的 cookie 文件
 - 换无风控的目标站测试核心能力
 
-## 问题 5：截图/产物落盘位置
+## 问题 6：截图/产物落盘位置
 
 **现象**：`browser_take_screenshot` 返回相对路径，找不到文件。
 
@@ -78,7 +86,7 @@ cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp /root/mcp_plugins/
 ls /root/mcp_plugins/playwright_mcp/.playwright-mcp/
 ```
 
-## 问题 6：MCP 启动成功但浏览器报错
+## 问题 7：MCP 启动成功但浏览器报错
 
 常见于系统依赖库缺失。**必装**：
 
@@ -87,3 +95,9 @@ npx playwright install-deps chromium
 ```
 
 包含 libxkbcommon0、libnss3、libnspr4、libatk、libcups、libdrm、libgbm、libasound2、fonts-unifont（中文字体）等。
+
+## 问题 8：ping_mcp 显示 24 个工具，不是文档说的 25 个？
+
+**24 个是正确的**。官方 @playwright/mcp v0.0.79（npm stable）的 `browser_*` 工具就是 24 个：click / close / console_messages / drag / drop / evaluate / file_upload / fill_form / find / handle_dialog / hover / navigate / navigate_back / network_request / network_requests / press_key / resize / run_code_unsafe / select_option / snapshot / tabs / take_screenshot / type / wait_for。
+
+v1.0.1 已修正 README/DEPLOY 中的"25"笔误。如果少于 24 个，请检查是否安装的版本不是 0.0.79（`node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"`）。
