@@ -22,10 +22,14 @@
       "disabled": false,
       "id": "playwright_mcp",
       "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwright_mcp",
+      "installedTime": 1786095000000,
       "isInstalled": true,
+      "logoUrl": "",
+      "longDescription": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
       "name": "Playwright MCP for Operit",
       "repoUrl": "https://github.com/microsoft/playwright-mcp",
       "type": "local",
+      "updatedAt": "2026-08-07T00:00:00Z",
       "version": "0.0.79"
     }
   }
