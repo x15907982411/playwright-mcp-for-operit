@@ -1,0 +1,58 @@
+name: Issue Notify
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' || (github.event_name == 'issue_comment' && !github.event.issue.pull_request)
+    steps:
+      - name: 组装通知内容
+        id: msg
+        run: |
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            echo "EVENT=新 Issue 提交" >> $GITHUB_OUTPUT
+            echo "WHO=${{ github.event.issue.user.login }}" >> $GITHUB_OUTPUT
+            echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
+            echo "URL=${{ github.event.issue.html_url }}" >> $GITHUB_OUTPUT
+            {
+              echo "BODY<<EOF"
+              echo "${{ github.event.issue.body }}"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+          else
+            echo "EVENT=Issue 收到新评论" >> $GITHUB_OUTPUT
+            echo "WHO=${{ github.event.comment.user.login }}" >> $GITHUB_OUTPUT
+            echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
+            echo "URL=${{ github.event.comment.html_url }}" >> $GITHUB_OUTPUT
+            {
+              echo "BODY<<EOF"
+              echo "${{ github.event.comment.body }}"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+          fi
+
+      - name: 发邮件通知
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SMTP_HOST }}
+          server_port: ${{ secrets.MAIL_SMTP_PORT }}
+          username: ${{ secrets.MAIL_USER }}
+          password: ${{ secrets.MAIL_PASS }}
+          subject: "【playwright-mcp-for-operit】${{ steps.msg.outputs.EVENT }}：${{ steps.msg.outputs.TITLE }}"
+          to: ${{ secrets.MAIL_TO }}
+          from: GitHub 通知 <${{ secrets.MAIL_USER }}>
+          body: |
+            📌 事件：${{ steps.msg.outputs.EVENT }}
+            👤 提交人：${{ steps.msg.outputs.WHO }}
+            📝 标题：${{ steps.msg.outputs.TITLE }}
+            🔗 链接：${{ steps.msg.outputs.URL }}
+            ---
+            ${{ steps.msg.outputs.BODY }}
