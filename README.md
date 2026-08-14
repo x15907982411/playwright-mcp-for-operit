@@ -101,13 +101,18 @@ Chromium headless 约占用 300-500MB 内存，建议可用内存 ≥ 1GB（实�
 - [部署手册（DEPLOY.md）](docs/DEPLOY.md) — 手动部署、配置注释、回滚
 - [故障排查（TROUBLESHOOTING.md）](docs/TROUBLESHOOTING.md) — 常见问题与解决
 - [安装脚本（install.sh）](install.sh) — 一键部署
+- [贡献指南（CONTRIBUTING.md）](CONTRIBUTING.md) — 报告 bug / 提交 PR
+- [安全政策（SECURITY.md）](SECURITY.md) — 漏洞报告
+- [行为准则（CODE_OF_CONDUCT.md）](CODE_OF_CONDUCT.md)
 
 ## 🔗 相关链接
 
-- 上游 MCP server：[microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)（v0.0.79，stable）
+- 上游 MCP server：[microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)（v0.0.79，**Apache-2.0**）
 - 运行平台：[AAswordman/Operit](https://github.com/AAswordman/Operit)
 - 浏览器内核：Chromium（arm64 headless）
 
 ## License
 
-MIT — 本项目包含部署脚本与文档；MCP server 版权归 [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) 所有。
+- **本项目**（部署脚本 / 配置模板 / 文档）：**MIT**（详见 [LICENSE](LICENSE)）
+- **上游 MCP server**：[Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) 为 **Apache-2.0**，安装时通过 npm 获取（`@playwright/mcp@0.0.79`），版权归 Microsoft 所有。本仓库**不包含**上游源代码
+- **商标**：Playwright 是 Microsoft 的商标。本项目为独立社区适配项目，与 Microsoft 无隶属关系；项目名中引用"Playwright"仅用于描述兼容性
