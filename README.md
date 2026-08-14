@@ -1,6 +1,6 @@
 # Playwright MCP for Operit
 
-[![version](https://img.shields.io/badge/version-1.0.2-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
+[![version](https://img.shields.io/badge/version-1.0.3-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 
 > **为 Operit 装上真正的浏览器。**
@@ -41,8 +41,9 @@ bash install.sh
 # 2. 在 Operit 中重启 MCP 服务，ping_mcp(playwright_mcp) 能看到 24 个 browser_* 工具，就完成了 🎉
 ```
 
-> ⚠️ raw.githubusercontent.com 在国内可能无法直连，可从 Release zip（v1.0.2）中提取 install.sh。
+> ⚠️ raw.githubusercontent.com 在国内可能无法直连，可从 Release zip（v1.0.3）中提取 install.sh。
 > 💡 安全提示：脚本已保存为本地 install.sh 再执行（非 curl|bash 直连管道），建议运行前先 `cat install.sh` 快速浏览一遍。
+> 💡 推荐在 proot 环境执行（Termux 与 proot 的 `~/.cache` 不互通，双环境切换会重复下载 chromium）。
 
 **方式二：手动部署**
 
@@ -87,7 +88,7 @@ Chromium headless 约占用 300-500MB 内存，建议可用内存 ≥ 1GB（实�
 24 个是**正确数量**。官方 @playwright/mcp v0.0.79（当前 npm stable）的 `browser_*` 工具就是 24 个，早期文档中的"25"是笔误，v1.0.1 已修正。
 
 **Q：部署后插件加载不上 / 报 Unknown error？**
-大概率是配置里 `pluginMetadata` 字段不完整（缺 `updatedAt` 等会触发 Operit 空指针）。请使用 v1.0.2 的 `install.sh` 或 `config/mcp_config.json`（全字段模板），不要手写精简片段。
+大概率是配置里 `pluginMetadata` 字段不完整（缺 `updatedAt` 等会触发 Operit 空指针）。请使用 v1.0.3 的 `install.sh` 或 `config/mcp_config.json`（全字段模板），不要手写精简片段。
 
 **Q：会被网站风控吗？**
 无头浏览器访问少数风控严格的站点（如百度搜索）可能触发验证码——这是所有自动化方案的通病，换 UA 或带登录态 cookie 即可缓解。
