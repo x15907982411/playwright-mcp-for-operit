@@ -34,11 +34,11 @@ server returned code 404 body '...NoSuchKey...'
 **修复（首选）**：不下载，复用本机已装 chromium：
 
 ```bash
-CHROME=$(find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linux*' | head -1)
-# 在 mcp_config.json 的 args 中加：--executable-path $CHROME
+CHROME=$(find "$HOME/.cache/ms-playwright" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' | head -1)
+# 新版机制：路径写在 playwright_mcp.py 转发器内（占位符 @CHROME_BIN@ 部署时替换），env 留空
 ```
 
-实测 1234（1.62 稳定版）被 1.63-alpha 的 playwright-core 驱动**完全兼容**（CDP 向后兼容）。
+实测 1234/1237（旧版稳定）被 0.0.80 的 playwright-core（1.63-alpha）驱动**完全兼容**（CDP 向后兼容）。
 
 **备选**：换官方 CDN 下载：`PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com/dbazure/download/playwright`（国内可能慢/不通）。
 
@@ -61,7 +61,7 @@ cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp /root/mcp_plugins/
 
 **根因**：`pluginMetadata.playwright_mcp` 缺少 `updatedAt`/`longDescription`/`logoUrl`/`installedTime` 等非空字段。早期版本 install.sh 只生成 3 个字段（type/connectionType/installedPath），手写覆盖会直接复现该问题。
 
-**修复（v1.0.1 已根治）**：使用仓库 [config/mcp_config.json](../config/mcp_config.json) 全字段模板，或直接跑新版 `install.sh`（自动生成 15 字段完整 pluginMetadata 并合并，原配置自动备份）。**不要再手写精简片段**。
+**修复（v1.0.4 已根治）**：使用仓库 [config/mcp_config.json](../config/mcp_config.json) 全字段模板，或直接跑新版 `install.sh`（自动生成 15 字段完整 pluginMetadata 并合并，原配置自动备份）。**不要再手写精简片段**。
 
 ## 问题 5：百度等站点弹出"安全验证"（headless 风控）
 
@@ -98,6 +98,6 @@ npx playwright install-deps chromium
 
 ## 问题 8：ping_mcp 显示 24 个工具，不是文档说的 25 个？
 
-**24 个是正确的**。官方 @playwright/mcp v0.0.79（npm stable）的 `browser_*` 工具就是 24 个：click / close / console_messages / drag / drop / evaluate / file_upload / fill_form / find / handle_dialog / hover / navigate / navigate_back / network_request / network_requests / press_key / resize / run_code_unsafe / select_option / snapshot / tabs / take_screenshot / type / wait_for。
+**24 个是正确的**。官方 @playwright/mcp v0.0.80（npm stable）的 `browser_*` 工具就是 24 个：click / close / console_messages / drag / drop / evaluate / file_upload / fill_form / find / handle_dialog / hover / navigate / navigate_back / network_request / network_requests / press_key / resize / run_code_unsafe / select_option / snapshot / tabs / take_screenshot / type / wait_for。
 
-v1.0.1 已修正 README/DEPLOY 中的"25"笔误。如果少于 24 个，请检查是否安装的版本不是 0.0.79（`node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"`）。
+早期文档（v1.0.0）中的"25"笔误已在 **v1.0.1 及以后版本**修正。如果少于 24 个，请检查是否安装的版本不是 0.0.80（`node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"`）。
