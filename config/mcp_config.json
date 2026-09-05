@@ -1,13 +1,10 @@
 {
   "mcpServers": {
     "playwright_mcp": {
-      "command": "node",
+      "command": "~/mcp_plugins/playwright_mcp/venv/bin/python",
       "args": [
-        "/usr/lib/node_modules/@playwright/mcp/cli.js",
-        "--headless",
-        "--no-sandbox",
-        "--executable-path",
-        "/root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome"
+        "-m",
+        "playwright_mcp"
       ],
       "autoApprove": [],
       "disabled": false,
@@ -16,21 +13,21 @@
   },
   "pluginMetadata": {
     "playwright_mcp": {
-      "author": "Microsoft",
+      "author": "x15907982411",
       "connectionType": "stdio",
       "description": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
       "disabled": false,
       "id": "playwright_mcp",
       "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwright_mcp",
-      "installedTime": 1786095000000,
+      "installedTime": 1788600000000,
       "isInstalled": true,
       "logoUrl": "",
       "longDescription": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
       "name": "Playwright MCP for Operit",
-      "repoUrl": "https://github.com/microsoft/playwright-mcp",
+      "repoUrl": "https://github.com/x15907982411/playwright-mcp-for-operit",
       "type": "local",
-      "updatedAt": "2026-08-07T00:00:00Z",
-      "version": "0.0.79"
+      "updatedAt": "2026-09-05T00:00:00Z",
+      "version": "0.0.80"
     }
   }
 }
