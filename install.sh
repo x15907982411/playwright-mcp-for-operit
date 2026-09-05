@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
-# Playwright MCP for Operit - 一键部署脚本 (v1.0.3)
+# Playwright MCP for Operit - 一键部署脚本 (v1.0.4)
 # 用法: bash install.sh
 # 适用环境: Android + proot(Ubuntu, 推荐) / Termux + node>=18 + Operit
 #   非 Operit 用户请勿使用（配置合并路径与 Operit 深度耦合）
 #   推荐在 proot 环境执行（Termux 与 proot 的 ~/.cache 不互通，双环境会重复下载）
 # 安全提示: 建议先 wget/curl 保存到本地审查一遍再执行
-# 功能: 检查 node/npm → 安装 @playwright/mcp@0.0.79（锁版本）
-#       → 定位/下载 chromium(arm64 headless) → 生成完整配置
+# 功能: 检查 node/npm → 安装 @playwright/mcp@0.0.80（锁版本）
+#       → 定位/下载 chromium(arm64 headless，含 build 版本探测) → 生成完整配置
 #       （含 pluginMetadata 全字段，修复 Operit MCPRepository NPE）
 #       → 自动合并进 Operit 主配置（原文件自动备份）+ 双路径部署
 # 可覆盖变量: OPERIT_DATA_DIR（默认 /sdcard/Download/Operit）
@@ -18,7 +18,11 @@ set -e
 trap 'rm -f /tmp/playwright_mcp.segment.json' EXIT
 
 MCP_ID="playwright_mcp"
-MCP_VER="0.0.79"
+MCP_VER="0.0.80"
+# 0.0.80 对应 playwright-core 1.63.0-alpha-2026-08-31，需求 chromium build 1243
+# 若本机已有 build < 1243（如 1237/1234），跨 build 复用实测兼容（1234/1237 → 1243），
+# 但若启动失败会在第 3 步给出明确提示，不会静默挖坑
+CHROMIUM_REQ=1243
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 NPM_ROOT="$(npm root -g 2>/dev/null || echo /usr/lib/node_modules)"
@@ -62,10 +66,17 @@ echo "    版本: ${INSTALLED_VER} ✅"
 echo "==> [3/5] 定位 chromium（优先复用已安装，否则自动下载）"
 # 防残缺：只认 >1MB 的 chrome 二进制（下载中断/解压残留的 0 字节空文件会被过滤）
 find_chrome() {
-  find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M 2>/dev/null | head -1
+  # 多路径探测：$HOME 优先，/root 兜底（proot 环境 HOME 可能不同）
+  for base in "$HOME/.cache/ms-playwright" "/root/.cache/ms-playwright"; do
+    [ -d "$base" ] || continue
+    local found
+    found=$(find "$base" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M 2>/dev/null | head -1)
+    [ -n "$found" ] && { echo "$found"; return 0; }
+  done
+  return 1
 }
 CHROME_BIN=""
-[ -d ~/.cache/ms-playwright ] && CHROME_BIN=$(find_chrome)
+CHROME_BIN=$(find_chrome)
 [ -n "$CHROME_BIN" ] && [ ! -s "$CHROME_BIN" ] && CHROME_BIN=""
 if [ -z "$CHROME_BIN" ]; then
   echo "    未发现完整 chromium，尝试下载 arm64 版（约 150MB）..."
@@ -75,9 +86,9 @@ if [ -z "$CHROME_BIN" ]; then
     echo "❌ 自动下载失败（常见：镜像源未同步该版本 arm64 build，见 docs/TROUBLESHOOTING.md 问题 2）"
     echo "   可尝试: export PLAYWRIGHT_DOWNLOAD_HOST=<其他镜像> 后重跑本脚本"
     tail -5 /tmp/pw_dl.log
-    echo "   请改用「复用已有 chromium」方案："
-    echo "   ① find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M"
-    echo "   ② 将输出路径填入配置 args 的 --executable-path 后，手动合并 config/mcp_config.json"
+    echo "   请改用「复用已有 chromium」方案（新版机制）："
+    echo "   ① find \$HOME/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M"
+    echo "   ② 将输出路径填入 playwright_mcp.py 转发器的 @CHROME_BIN@ 占位符（或重跑本脚本自动探测）"
     popd >/dev/null 2>&1 || true
     exit 1
   fi
@@ -86,6 +97,15 @@ if [ -z "$CHROME_BIN" ]; then
 fi
 [ -z "$CHROME_BIN" ] && { echo "❌ chromium 定位失败"; exit 1; }
 echo "    ✅ $CHROME_BIN"
+
+# build 版本探测：@playwright/mcp 0.0.80 需求 chromium build ${CHROMIUM_REQ}
+# 本机 build < 需求时给提示（跨 build 复用实测可兼容，但不保证所有环境），避免静默挖坑
+CHROME_BUILD=$(echo "$CHROME_BIN" | grep -oE 'chromium-[0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ -n "$CHROME_BUILD" ] && [ "$CHROME_BUILD" -lt "$CHROMIUM_REQ" ] 2>/dev/null; then
+  echo "    ⚠️ 本机 chromium build=${CHROME_BUILD}，@playwright/mcp ${MCP_VER} 官方需求 build=${CHROMIUM_REQ}"
+  echo "       跨 build 复用实测兼容（1234/1237 → 1243 已在本仓库验证），但若启动失败请改用匹配 build："
+  echo "       删除旧版后重跑本脚本自动下载: rm -rf ~/.cache/ms-playwright/chromium-${CHROME_BUILD}* && bash install.sh"
+fi
 
 # 依赖检查：缺共享库时提前提示（否则启动时才报 libnss3.so 缺失）
 MISSING=$(ldd "$CHROME_BIN" 2>/dev/null | grep "not found" | awk '{print $1}' | sort -u | head -5)
@@ -96,19 +116,25 @@ if [ -n "$MISSING" ]; then
 fi
 
 echo "==> [4/5] 生成完整配置（pluginMetadata 全字段，修复 NPE）"
+# 启动命令用新版 Operit 机制（对齐 Operit 源码 MCPConfigGenerator.kt）：
+# PYTHON 项目 → command = "<pluginDirPath>/venv/bin/python" + args=["-m","playwright_mcp"]
+# 路径硬编码在转发器内，env 留空（Operit 不强求）
 node - "$CHROME_BIN" "$MCP_VER" "$NPM_ROOT" "$ANDROID_DIR" > /dev/null <<'NODE'
 const fs = require('fs');
 const chrome = process.argv[2];
 const ver = process.argv[3];
 const npmRoot = process.argv[4];
 const androidDir = process.argv[5];
-// installedPath 跟随 OPERIT_DATA_DIR（/sdcard/ 形式转 Android 的 /storage/emulated/0/ 形式）
-const installedPath = androidDir.replace(/^\/sdcard\//, '/storage/emulated/0/');
+// installedPath 跟随 OPERIT_DATA_DIR：/sdcard/ 或 /storage/emulated/0/ 转统一 Android 路径
+const installedPath = androidDir
+  .replace(/^\/sdcard\//, '/storage/emulated/0/')
+  .replace(/^\/storage\/emulated\/0\//, '/storage/emulated/0/');
+// command 用 Operit 生成的绝对路径形式：~/mcp_plugins/<id>/venv/bin/python
 const seg = {
   mcpServers: {
     playwright_mcp: {
-      command: 'node',
-      args: [npmRoot + '/@playwright/mcp/cli.js', '--headless', '--no-sandbox', '--executable-path', chrome],
+      command: '~/mcp_plugins/playwright_mcp/venv/bin/python',
+      args: ['-m', 'playwright_mcp'],
       autoApprove: [],
       disabled: false,
       env: {}
@@ -116,7 +142,7 @@ const seg = {
   },
   pluginMetadata: {
     playwright_mcp: {
-      author: 'Microsoft',
+      author: 'x15907982411',
       connectionType: 'stdio',
       description: 'Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）',
       disabled: false,
@@ -127,7 +153,7 @@ const seg = {
       logoUrl: '',
       longDescription: 'Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）',
       name: 'Playwright MCP for Operit',
-      repoUrl: 'https://github.com/microsoft/playwright-mcp',
+      repoUrl: 'https://github.com/x15907982411/playwright-mcp-for-operit',
       type: 'local',
       updatedAt: new Date().toISOString(),
       version: ver
@@ -140,6 +166,34 @@ echo "    ✅ 配置片段已生成: $SEG"
 
 echo "==> [5/5] 部署：合并主配置（自动备份）+ 双路径目录"
 mkdir -p "$ANDROID_DIR"
+# 新版 Operit（2026-08-22 起）部署机制适配：
+# MCPStarter 强制按「目录名=模块名」生成启动命令，且通过 venv/bin/python -m <目录名> 启动
+# 因此必须放置 playwright_mcp.py 转发器（exec 转发 node cli.js）+ 空 requirements.txt（保 PYTHON 判定）
+# 转发器模板在仓库 scripts/playwright_mcp.py（单一来源，install.sh 与手动部署共用）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NODE_BIN="$(command -v node)"
+if [ -f "$SCRIPT_DIR/scripts/playwright_mcp.py" ]; then
+  # 从模板复制，替换占位符为真实路径（NODE/CLI/CHROME）
+  sed -e "s|@NODE_BIN@|$NODE_BIN|g" \
+      -e "s|@CLI_JS@|$CLI_JS|g" \
+      -e "s|@CHROME_BIN@|$CHROME_BIN|g" \
+      "$SCRIPT_DIR/scripts/playwright_mcp.py" > "$ANDROID_DIR/playwright_mcp.py"
+else
+  # 兜底：脚本被单独下载（无 scripts/ 目录）时内嵌生成
+  cat > "$ANDROID_DIR/playwright_mcp.py" <<PYEOF
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Playwright MCP 转发器（Operit 新版机制：python -m playwright_mcp → exec 全局 playwright MCP cli）"""
+import os
+import sys
+NODE = "$NODE_BIN"
+CLI = "$CLI_JS"
+CHROME = "$CHROME_BIN"
+os.execv(NODE, [NODE, CLI, "--headless", "--no-sandbox", "--executable-path", CHROME] + sys.argv[1:])
+PYEOF
+fi
+touch "$ANDROID_DIR/requirements.txt"
+echo "    ✅ 已放置 playwright_mcp.py 转发器（路径: $NODE_BIN / $CLI_JS / $CHROME_BIN）+ requirements.txt"
 if [ -f "$MAIN_CFG" ]; then
   BAK_FILE="$MAIN_CFG.bak.$(date +%s)"
   cp "$MAIN_CFG" "$BAK_FILE" && echo "    主配置已备份: $BAK_FILE"
@@ -175,6 +229,8 @@ console.log('    ✅ 已合并进 ' + mainPath);
 NODE
 node -e "const s=JSON.parse(require('fs').readFileSync('/tmp/playwright_mcp.segment.json','utf8'));require('fs').writeFileSync('${ANDROID_DIR}/mcp.config.json', JSON.stringify({mcpServers:s.mcpServers},null,2))"
 mkdir -p "$LINUX_RUN_DIR"
+# 先清理旧的 Linux 运行目录（避免旧文件残留/覆盖挖坑），再全量复制
+rm -rf "$LINUX_RUN_DIR/${MCP_ID}"
 cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
 echo "    ✅ 双路径部署完成（Android 源 + Linux 运行目录: $LINUX_RUN_DIR）"
 
