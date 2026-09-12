@@ -1,6 +1,18 @@
-# 贡献指南（Contributing）
+# 贡献指南（CONTRIBUTING.md）
 
-感谢你对 **Playwright MCP for Operit** 感兴趣！本项目为 [Operit](https://github.com/AAswordman/Operit)（Android AI 助手）适配官方 [Playwright MCP](https://github.com/microsoft/playwright-mcp)，让 AI 拥有真正的浏览器能力。
+感谢你对 **Playwright MCP for Operit** 感兴趣！
+
+本项目为 [Operit](https://github.com/AAswordman/Operit)（Android AI 助手）适配官方 [Playwright MCP](https://github.com/microsoft/playwright-mcp)，让 AI 拥有真正的浏览器能力。
+
+## 目录
+
+- [报告 Bug](#-报告-bug)
+- [提交功能建议](#-提交功能建议)
+- [提交代码（PR）](#-提交代码pr)
+- [发布流程（维护者）](#-发布流程维护者)
+- [License](#-license)
+
+---
 
 ## 🐛 报告 Bug
 
@@ -11,7 +23,7 @@
 3. **期望行为 vs 实际行为**
 4. 截图或日志文件（敏感信息请打码）
 
-> 💡 部署类问题优先自查：`docs/TROUBLESHOOTING.md` 覆盖了镜像缺失、NPE、依赖缺失等常见坑。
+> 💡 部署类问题优先自查：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) 覆盖了镜像缺失、NPE、依赖缺失等常见坑。
 
 ## 💡 提交功能建议
 
@@ -33,7 +45,7 @@
 
 ## 🚀 发布流程（维护者）
 
-版本号语义：v1.0.x 递增（脚本/文档改动即递增）。发布步骤：
+版本号语义：`v1.0.x` 递增（脚本/文档改动即递增）。发布步骤：
 
 1. 更新 `install.sh` 头部版本号 + README 徽章/FAQ 中的版本引用
 2. 推送 main → 打 tag → 创建 Release（附 zip 资产）
