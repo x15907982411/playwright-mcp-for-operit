@@ -22,12 +22,12 @@
       "installedTime": 1788600000000,
       "isInstalled": true,
       "logoUrl": "",
-      "longDescription": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
+      "longDescription": "基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 24 个 browser_* 工具。",
       "name": "Playwright MCP for Operit",
       "repoUrl": "https://github.com/x15907982411/playwright-mcp-for-operit",
       "type": "local",
-      "updatedAt": "2026-09-05T00:00:00Z",
-      "version": "0.0.80"
+      "updatedAt": "2026-09-12T00:00:00Z",
+      "version": "1.0.5"
     }
   }
 }
