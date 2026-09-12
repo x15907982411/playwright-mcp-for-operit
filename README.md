@@ -1,6 +1,6 @@
 # Playwright MCP for Operit
 
-[![version](https://img.shields.io/badge/version-1.0.4-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
+[![version](https://img.shields.io/badge/version-1.0.5-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%20%2B%20proot%20arm64-blueviolet?style=flat-square)](#环境要求)
 [![tools](https://img.shields.io/badge/browser__tools-24-orange?style=flat-square)](#它能做什么)
@@ -20,6 +20,7 @@
 - [它能做什么](#它能做什么)
 - [效果演示](#效果演示)
 - [快速开始](#快速开始)
+- [首次启动会发生什么](#首次启动会发生什么)
 - [使用示例](#使用示例)
 - [常见问题](#常见问题)
 - [文档导航](#文档导航)
@@ -33,7 +34,7 @@
 | 项 | 要求 | 说明 |
 |---|---|---|
 | **运行平台** | Operit（Android）+ proot Ubuntu 24 | 本项目针对 `aarch64` 构建 |
-| **Node.js** | ≥ 18（实测 v24） | 用于启动 MCP server |
+| **Node.js** | ≥ 18（实测 v24） | 用于运行 MCP server |
 | **可用内存** | ≥ 1GB | Chromium headless 约占 300–500MB |
 | **磁盘空间** | ~150MB（仅在需下载 Chromium 时） | 已有 Chromium 则零下载 |
 
@@ -58,33 +59,58 @@
 
 ## 快速开始
 
+### 方式零：从 Operit 市场安装（最推荐）
+
+在 Operit 内打开插件市场 → 搜索 **Playwright MCP** → 安装 → 重启 MCP 服务即可。
+
+插件采用**自举设计**：包内只带声明文件（`package.json` / `requirements.txt` / 转发器），依赖与 Chromium 在首次启动时由转发器自动补齐，因此市场包很小、也能做到装完即用。
+
 ### 方式一：一键脚本（推荐）
 
 ```bash
-# 下载并运行（自动完成：环境检查 → 安装 MCP → 定位/下载 Chromium → 生成配置 → 双路径部署）
+# 下载并运行（自动完成：环境检查 → 依赖安装 → Chromium 探测 → 配置生成 → 双路径部署 → venv）
 curl -sL https://raw.githubusercontent.com/x15907982411/playwright-mcp-for-operit/main/install.sh -o install.sh
 bash install.sh
+
+# 可选参数：
+bash install.sh --global       # 依赖装到全局 node_modules
+bash install.sh --skip-deps    # 跳过依赖安装，交给自举转发器首次启动时处理
+bash install.sh --dry-run      # 只检查、不写文件
 ```
 
 完成后在 Operit 中重启 MCP 服务，`ping_mcp(playwright_mcp)` 能看到 **24 个 `browser_*` 工具**即可使用。
 
-> ⚠️ `raw.githubusercontent.com` 在国内可能无法直连，可从 [Release v1.0.4](https://github.com/x15907982411/playwright-mcp-for-operit/releases) 的 zip 中提取 `install.sh`。
+> ⚠️ `raw.githubusercontent.com` 在国内可能无法直连，可从 [Release](https://github.com/x15907982411/playwright-mcp-for-operit/releases) 的 zip 中提取 `install.sh`。
 >
 > 💡 脚本先保存到本地再执行（非 `curl | bash` 管道），建议运行前先 `cat install.sh` 浏览一遍。
 >
 > 💡 **推荐在 proot 环境执行**：Termux 与 proot 的 `~/.cache` 不互通，双环境切换会重复下载 Chromium。
+>
+> 🗑 卸载：`bash uninstall.sh`（支持 `--keep-files` / `--purge` / `--dry-run`）。
 
 ### 方式二：手动部署（概览）
 
 需要自行控制每一步时，按以下顺序操作：
 
-1. 安装 `@playwright/mcp@0.0.80`（**必须锁版本**）
-2. 准备 Chromium（**优先复用**已有，避免 arm64 镜像 404）
+1. 准备插件目录（`playwright_mcp.py` 转发器 + `requirements.txt` + `package.json` + `mcp.config.json`）
+2. 安装 Node 依赖：`npm install`（**在 Linux 运行目录内**，读 `package.json`）——也可跳过，交给首次启动自举
 3. 写入 `mcp_config.json`（使用仓库全字段模板，勿手写精简片段）
-4. 双路径部署（Android 源目录 + Linux 运行目录）
+4. 双路径部署（Android 源目录 + Linux 运行目录 `~/mcp_plugins/`）+ 准备 `venv`
 5. 重启 MCP 并验证（`ping_mcp` → 24 个工具）
 
 > 📖 每步的完整命令、配置注释与回滚方式，见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
+
+## 首次启动会发生什么
+
+无论从市场还是一键脚本安装，首次启动 MCP 时转发器会自动兜底：
+
+1. 找不到 `@playwright/mcp` → 自动 `npm install`（插件目录本地优先，回退全局）；
+2. 找不到 Chromium → 先复用本机已有的（`~/.cache/ms-playwright`），实在没有才下载（约 150MB，数分钟）；
+3. 全程日志写在 `~/mcp_plugins/playwright_mcp/bootstrap.log`。
+
+> 💡 若首次启动因下载超时失败，**再重启一次 MCP 即可**（包与浏览器已就位）。
+>
+> 💡 可用 `PW_MCP_AUTO_INSTALL=0` / `PW_MCP_AUTO_DOWNLOAD=0` 关闭自动行为（在 `mcpServers.playwright_mcp.env` 里设）。
 
 ## 使用示例
 
@@ -107,8 +133,10 @@ browser_take_screenshot()                     // 截图留证
 | 问题 | 答案 |
 |---|---|
 | **手机内存够吗？** | Chromium headless 约占 300–500MB，建议可用内存 ≥ 1GB（实测 8 核 + 1GB 环境运行流畅） |
+| **市场装完重启后第一次很慢 / 失败？** | 正常：首次启动要装 MCP 包 + 准备 Chromium（可能下载 150MB）。**再重启一次 MCP** 即可；进度与错误见 `bootstrap.log` |
+| **重启 MCP 报 Unknown error，但插件其实起来了？** | 已知现象：Operit 的重启工具有时会报错，但插件已成功加载。以 `ping_mcp` 能否列出 24 个工具为准 |
 | **`ping_mcp` 只有 24 个工具，不是 25 个？** | **24 个是正确的**。官方 v0.0.80 就是 24 个；早期文档（v1.0.0）写「25」是笔误，v1.0.1 起已修正 |
-| **插件加载不上 / 报 Unknown error？** | 多为 `pluginMetadata` 字段不完整（缺 `updatedAt` 会触发 Operit 空指针）。请用 v1.0.4 的 `install.sh` 或 `config/mcp_config.json`，**不要手写精简片段** |
+| **插件加载不上 / 报 Unknown error？** | 多为 `pluginMetadata` 字段不完整（缺 `updatedAt` 会触发 Operit 空指针）。请用 v1.0.5 的 `install.sh` 或 `config/mcp_config.json`，**不要手写精简片段** |
 | **会被网站风控吗？** | 无头浏览器访问少数风控严格的站点（如百度搜索）可能触发验证码，属所有自动化方案的通病；可用真实 UA 或带登录态 cookie 缓解 |
 | **和 Operit 内置 browser 包有何区别？** | 内置包在部分设备有内核兼容问题（页面无法加载）；本方案基于官方 MCP server + 完整 Chromium，实测全链路可用，且多出网络抓包、console 日志等能力 |
 
@@ -118,10 +146,11 @@ browser_take_screenshot()                     // 截图留证
 
 | 文档 | 内容 |
 |---|---|
+| [install.sh](install.sh) | 一键安装脚本（支持 `--global` / `--skip-deps` / `--dry-run`） |
+| [uninstall.sh](uninstall.sh) | 卸载脚本（支持 `--keep-files` / `--purge` / `--dry-run`） |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | 手动部署完整流程、配置注释、回滚 |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查（8 个常见问题，含根因与修复） |
-| [install.sh](install.sh) | 一键安装脚本 |
-| [market/README.md](market/README.md) | 发布到 Operit 市场的配置规范 |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查（含首次启动自举、镜像缺失、依赖库等） |
+| [market/README.md](market/README.md) | **发布到市场的机制说明与配置规范**（含自动安装行为） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 报告 Bug / 提交 PR |
 | [SECURITY.md](SECURITY.md) | 漏洞报告流程 |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 行为准则 |
