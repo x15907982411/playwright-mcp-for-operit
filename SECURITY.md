@@ -1,4 +1,13 @@
-# 安全政策（Security Policy）
+# 安全政策（SECURITY.md）
+
+## 目录
+
+- [支持的版本](#-支持的版本)
+- [报告漏洞](#-报告漏洞)
+- [响应预期](#️-响应预期请知悉)
+- [本项目已知安全特性](#️-本项目已知安全特性)
+
+---
 
 ## 🔒 支持的版本
 
@@ -8,12 +17,12 @@
 
 本项目没有专职安全团队，但我们会认真对待每一条报告。
 
-**首选：GitHub Security Advisories（私密）**
+### 首选：GitHub Security Advisories（私密）
 
 1. 打开仓库 → **Security** 标签页 → **Report a vulnerability**（或 New draft security advisory）
 2. 填写漏洞描述，GitHub 会以私密草稿形式提交，只有维护者可见
 
-**备选：公开 Issue**（如果不会用上面的入口）
+### 备选：公开 Issue（如果不会用上面的入口）
 
 1. 创建 Issue，标题以 `[SECURITY]` 开头
 2. 正文**不要包含可利用细节**（PoC、完整攻击链），仅描述：受影响模块、漏洞类型、大致影响
@@ -37,7 +46,7 @@
 
 ## 🛡️ 本项目已知安全特性
 
-- `install.sh` 采用 `curl -o` 下载后本地审查再执行（非 curl|bash 直连管道）
+- `install.sh` 采用 `curl -o` 下载后本地审查再执行（非 `curl | bash` 直连管道）
 - 部署脚本会自动备份用户配置（`.bak.时间戳`），JSON 损坏时熔断不覆盖
 - 不收集任何用户数据，无遥测
 
