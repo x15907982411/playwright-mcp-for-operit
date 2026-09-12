@@ -1,6 +1,21 @@
 # 故障排查手册（TROUBLESHOOTING.md）
 
-> 全部来自 2026-08-07 实机部署踩坑记录 + 2026-08-12 社区反馈（issue #1），按出现频率排序。
+> 内容来自实机部署踩坑记录（2026-08-07）与社区反馈（issue #1，2026-08-12），按出现频率排序。
+
+## 快速索引
+
+| 你遇到的现象 | 跳到 |
+|---|---|
+| `apt-get update` 大量 404（binary-amd64） | [问题 1](#问题-1apt-get-update-报-404binary-amd64packages) |
+| 下载 Chromium 报 404（NoSuchKey） | [问题 2](#问题-2playwright-下载-chromium-报-404npmmirror-无-arm64-build) |
+| 重启 MCP 报 `Unknown error` | [问题 3](#问题-3restart_mcp_with_logs-报-unknown-error) |
+| 插件永远加载不上 / 日志有 NPE | [问题 4](#问题-4插件永远加载不上--日志出现-npepluginmetadata-字段缺失) |
+| 网站弹「安全验证」/验证码 | [问题 5](#问题-5百度等站点弹出安全验证headless-风控) |
+| 截图/产物找不到在哪 | [问题 6](#问题-6截图产物落盘位置) |
+| MCP 启动成功但浏览器报错 | [问题 7](#问题-7mcp-启动成功但浏览器报错) |
+| 工具数是 24 不是 25 | [问题 8](#问题-8ping_mcp-显示-24-个工具不是文档说的-25-个) |
+
+---
 
 ## 问题 1：apt-get update 报 404（binary-amd64/Packages）
 
@@ -20,7 +35,7 @@ sed -i 's|^deb |deb [arch=arm64] |' /etc/apt/sources.list
 apt-get update
 ```
 
-## 问题 2：playwright 下载 chromium 报 404（npmmirror 无 arm64 build）
+## 问题 2：playwright 下载 Chromium 报 404（npmmirror 无 arm64 build）
 
 **现象**：
 
@@ -29,9 +44,9 @@ Failed to download Chrome for Testing ... (playwright chromium v1237)
 server returned code 404 body '...NoSuchKey...'
 ```
 
-**根因**：@playwright/mcp 自带 playwright 是 alpha 版（要求较新 revision，如 1237），npmmirror 镜像尚未同步该版本的 `chromium-linux-arm64.zip`。
+**根因**：`@playwright/mcp` 自带 playwright 是 alpha 版（要求较新 revision，如 1237），npmmirror 镜像尚未同步该版本的 `chromium-linux-arm64.zip`。
 
-**修复（首选）**：不下载，复用本机已装 chromium：
+**修复（首选）**：不下载，复用本机已装 Chromium：
 
 ```bash
 CHROME=$(find "$HOME/.cache/ms-playwright" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' | head -1)
@@ -40,11 +55,11 @@ CHROME=$(find "$HOME/.cache/ms-playwright" -maxdepth 4 -type f -name chrome -pat
 
 实测 1234/1237（旧版稳定）被 0.0.80 的 playwright-core（1.63-alpha）驱动**完全兼容**（CDP 向后兼容）。
 
-**备选**：换官方 CDN 下载：`PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com/dbazure/download/playwright`（国内可能慢/不通）。
+**备选**：换官方 CDN：`PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com/dbazure/download/playwright`（国内可能慢/不通）。
 
 ## 问题 3：restart_mcp_with_logs 报 Unknown error
 
-**现象**：修改 mcp_config.json 后重启 MCP，工具直接报 `Unknown error`，ping_mcp 也找不到插件。
+**现象**：修改 `mcp_config.json` 后重启 MCP，工具直接报 `Unknown error`，`ping_mcp` 也找不到插件。
 
 **根因**：Operit 的 stdio 本地插件**在 Linux 侧 `/root/mcp_plugins/<id>/` 启动**，Android 源目录不会自动同步；目录缺失时启动流程直接异常。
 
@@ -57,19 +72,20 @@ cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp /root/mcp_plugins/
 
 ## 问题 4：插件永远加载不上 / 日志出现 NPE（pluginMetadata 字段缺失）
 
-**现象**：配置照抄了"精简版"片段后，插件加载失败、重启报空指针；检查 Operit 日志可见 `MCPRepository.kt` 的 `metadata.copy()` 抛 NPE（`updatedAt` 为 null）。
+**现象**：配置照抄了「精简版」片段后，插件加载失败、重启报空指针；Operit 日志可见 `MCPRepository.kt` 的 `metadata.copy()` 抛 NPE（`updatedAt` 为 null）。
 
-**根因**：`pluginMetadata.playwright_mcp` 缺少 `updatedAt`/`longDescription`/`logoUrl`/`installedTime` 等非空字段。早期版本 install.sh 只生成 3 个字段（type/connectionType/installedPath），手写覆盖会直接复现该问题。
+**根因**：`pluginMetadata.playwright_mcp` 缺少 `updatedAt` / `longDescription` / `logoUrl` / `installedTime` 等非空字段。早期版本 install.sh 只生成 3 个字段（type/connectionType/installedPath），手写覆盖会直接复现该问题。
 
 **修复（v1.0.4 已根治）**：使用仓库 [config/mcp_config.json](../config/mcp_config.json) 全字段模板，或直接跑新版 `install.sh`（自动生成 15 字段完整 pluginMetadata 并合并，原配置自动备份）。**不要再手写精简片段**。
 
-## 问题 5：百度等站点弹出"安全验证"（headless 风控）
+## 问题 5：百度等站点弹出「安全验证」（headless 风控）
 
-**现象**：navigate 正常，但执行搜索/提交后跳转到验证码页（`wappass.baidu.com/static/captcha/...`）。
+**现象**：`navigate` 正常，但执行搜索/提交后跳转到验证码页（`wappass.baidu.com/static/captcha/...`）。
 
 **原因**：headless Chromium 的自动化特征被 WAF 识别，属预期行为，不影响自动化能力本身。
 
 **缓解**：
+
 - `--user-agent` 指定真实浏览器 UA（CLI 参数）
 - 用 `--storage-state` 预置带登录态的 cookie 文件
 - 换无风控的目标站测试核心能力
@@ -79,8 +95,9 @@ cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp /root/mcp_plugins/
 **现象**：`browser_take_screenshot` 返回相对路径，找不到文件。
 
 **说明**：MCP 进程 cwd = `~/mcp_plugins/playwright_mcp/`（Linux 侧）。
+
 - 指定 `filename` → 存 cwd 根目录
-- 不指定 → 存 `.playwright-mcp/` 子目录（snapshot/console 日志同处）
+- 不指定 → 存 `.playwright-mcp/` 子目录（snapshot / console 日志同处）
 
 ```bash
 ls /root/mcp_plugins/playwright_mcp/.playwright-mcp/
@@ -94,10 +111,16 @@ ls /root/mcp_plugins/playwright_mcp/.playwright-mcp/
 npx playwright install-deps chromium
 ```
 
-包含 libxkbcommon0、libnss3、libnspr4、libatk、libcups、libdrm、libgbm、libasound2、fonts-unifont（中文字体）等。
+包含 `libxkbcommon0`、`libnss3`、`libnspr4`、`libatk`、`libcups`、`libdrm`、`libgbm`、`libasound2`、`fonts-unifont`（中文字体）等。
 
 ## 问题 8：ping_mcp 显示 24 个工具，不是文档说的 25 个？
 
-**24 个是正确的**。官方 @playwright/mcp v0.0.80（npm stable）的 `browser_*` 工具就是 24 个：click / close / console_messages / drag / drop / evaluate / file_upload / fill_form / find / handle_dialog / hover / navigate / navigate_back / network_request / network_requests / press_key / resize / run_code_unsafe / select_option / snapshot / tabs / take_screenshot / type / wait_for。
+**24 个是正确的**。官方 `@playwright/mcp` v0.0.80（npm stable）的 `browser_*` 工具就是 24 个：
 
-早期文档（v1.0.0）中的"25"笔误已在 **v1.0.1 及以后版本**修正。如果少于 24 个，请检查是否安装的版本不是 0.0.80（`node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"`）。
+`click` / `close` / `console_messages` / `drag` / `drop` / `evaluate` / `file_upload` / `fill_form` / `find` / `handle_dialog` / `hover` / `navigate` / `navigate_back` / `network_request` / `network_requests` / `press_key` / `resize` / `run_code_unsafe` / `select_option` / `snapshot` / `tabs` / `take_screenshot` / `type` / `wait_for`
+
+早期文档（v1.0.0）中的「25」笔误已在 **v1.0.1 及以后版本**修正。如果少于 24 个，请检查版本是否为 0.0.80：
+
+```bash
+node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"
+```
