@@ -1,0 +1,12 @@
+{
+  "name": "playwright-mcp-for-operit",
+  "version": "1.0.5",
+  "private": true,
+  "description": "Playwright MCP for Operit 的运行时依赖声明。Operit 市场安装（或自举转发器）会执行 npm install，把 @playwright/mcp 装到插件目录内的 node_modules。",
+  "dependencies": {
+    "@playwright/mcp": "0.0.80"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
