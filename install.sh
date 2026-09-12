@@ -1,135 +1,158 @@
 #!/usr/bin/env bash
 # ============================================================
-# Playwright MCP for Operit - 一键部署脚本 (v1.0.4)
-# 用法: bash install.sh
-# 适用环境: Android + proot(Ubuntu, 推荐) / Termux + node>=18 + Operit
+# Playwright MCP for Operit - 一键部署脚本 (v1.0.5)
+#
+# 用法:
+#   bash install.sh                 # 默认：依赖装到 Linux 运行目录（推荐）
+#   bash install.sh --global        # 依赖装到全局 node_modules
+#   bash install.sh --skip-deps     # 跳过依赖安装（交给自举转发器首次启动时处理）
+#   bash install.sh --dry-run       # 只检查与打印，不写任何文件
+#
+# 适用环境: Android + proot(Ubuntu) / Termux + node>=18 + Operit
 #   非 Operit 用户请勿使用（配置合并路径与 Operit 深度耦合）
 #   推荐在 proot 环境执行（Termux 与 proot 的 ~/.cache 不互通，双环境会重复下载）
-# 安全提示: 建议先 wget/curl 保存到本地审查一遍再执行
-# 功能: 检查 node/npm → 安装 @playwright/mcp@0.0.80（锁版本）
-#       → 定位/下载 chromium(arm64 headless，含 build 版本探测) → 生成完整配置
-#       （含 pluginMetadata 全字段，修复 Operit MCPRepository NPE）
-#       → 自动合并进 Operit 主配置（原文件自动备份）+ 双路径部署
-# 可覆盖变量: OPERIT_DATA_DIR（默认 /sdcard/Download/Operit）
-#            LINUX_RUN_DIR（默认 $HOME/mcp_plugins）
-#            PLAYWRIGHT_DOWNLOAD_HOST（默认 npmmirror 镜像）
+#
+# 安全提示: 建议先 curl/wget 保存到本地审查一遍再执行（非 curl|bash 管道）
+#
+# 功能:
+#   1. 环境检查（node/npm + 版本）
+#   2. 部署插件文件（转发器 / requirements.txt / package.json / mcp.config.json）
+#   3. Chromium 探测（复用优先；缺失时不阻塞，交给转发器自举）
+#   4. 生成完整 pluginMetadata 配置（15 字段，防 Operit MCPRepository NPE）+ 合并主配置
+#   5. 双路径部署（Android 源目录 + Linux 运行目录）+ 依赖安装 + venv 准备 + 结构校验
+#
+# 重要设计说明:
+#   - npm install 必须在 Linux 文件系统内执行 —— /sdcard 是 FUSE，不支持文件锁与
+#     符号链接，在 Android 侧目录跑 npm 会失败或产生半成品。因此 local 模式的安装
+#     动作发生在双路径部署完成后，在 Linux 运行目录内执行。
+#   - venv 不可缺：启动命令是 venv/bin/python -m playwright_mcp，而 Operit 只在
+#     「安装/重装」时创建 venv，单纯重启不会重建，因此脚本自己先建好。
+#
+# 可覆盖变量:
+#   OPERIT_DATA_DIR      默认 /sdcard/Download/Operit
+#   LINUX_RUN_DIR        默认 $HOME/mcp_plugins
+#   PW_MCP_INSTALL_MODE  local|global|skip
+#   PW_MCP_NPM_REGISTRY  自定义 npm registry（国内加速）
 # ============================================================
-set -e
-trap 'rm -f /tmp/playwright_mcp.segment.json' EXIT
+# 注意：不用 `pipefail`——本脚本大量使用 `cmd | head -1` 取首行，
+# head 提前关闭管道会产生 SIGPIPE，配合 pipefail 会让 set -e 误杀脚本。
+set -eu
 
 MCP_ID="playwright_mcp"
 MCP_VER="0.0.80"
-# 0.0.80 对应 playwright-core 1.63.0-alpha-2026-08-31，需求 chromium build 1243
-# 若本机已有 build < 1243（如 1237/1234），跨 build 复用实测兼容（1234/1237 → 1243），
-# 但若启动失败会在第 3 步给出明确提示，不会静默挖坑
-CHROMIUM_REQ=1243
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
-NPM_ROOT="$(npm root -g 2>/dev/null || echo /usr/lib/node_modules)"
-CLI_JS="${NPM_ROOT}/@playwright/mcp/cli.js"
-MAIN_CFG="${OPERIT_DATA_DIR}/mcp_plugins/mcp_config.json"
-ANDROID_DIR="${OPERIT_DATA_DIR}/mcp_plugins/${MCP_ID}"
-SEG="/tmp/playwright_mcp.segment.json"
+INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
+DRY_RUN=0
+REPO_SLUG="x15907982411/playwright-mcp-for-operit"
 
-echo "==> [1/5] 检查 node / npm"
-command -v node >/dev/null 2>&1 || { echo "❌ node 未安装（需 ≥18）"; exit 1; }
-command -v npm  >/dev/null 2>&1 || { echo "❌ npm 未安装";  exit 1; }
-NODE_MAJOR=$(node -p "process.versions.node.split('.')[0]")
+SEG_FILE=""
+ANDROID_DIR=""
+cleanup() { [ -n "$SEG_FILE" ] && rm -f "$SEG_FILE" 2>/dev/null || true; }
+trap cleanup EXIT
+
+usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; }
+
+for arg in "$@"; do
+  case "$arg" in
+    --global)     INSTALL_MODE="global" ;;
+    --skip-deps)  INSTALL_MODE="skip"   ;;
+    --dry-run)    DRY_RUN=1             ;;
+    -h|--help)    usage; exit 0          ;;
+    *) echo "⚠️  未知参数: $arg（可用: --global --skip-deps --dry-run --help）" ;;
+  esac
+done
+
+log()  { echo "$*"; }
+warn() { echo "⚠️  $*" >&2; }
+step() { echo; echo "==> $*"; }
+
+NPM_REG_ARGS=()
+[ -n "${PW_MCP_NPM_REGISTRY:-}" ] && NPM_REG_ARGS=(--registry "$PW_MCP_NPM_REGISTRY")
+
+# ---------------------------------------------------------------- 1. 环境检查
+step "[1/6] 环境检查"
+command -v node >/dev/null 2>&1 || { echo "❌ node 未安装（需 ≥ 18）"; exit 1; }
+command -v npm  >/dev/null 2>&1 || { echo "❌ npm 未安装"; exit 1; }
+NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
 if [ "$NODE_MAJOR" -lt 18 ]; then echo "❌ node 版本过低: $(node -v)（需 ≥18）"; exit 1; fi
-echo "    node: $(node -v)  npm: $(npm -v)  npmRoot: $NPM_ROOT"
+log "    node      : $(command -v node) ($(node -v))"
+log "    npm       : $(npm -v)"
+log "    Android 源: $OPERIT_DATA_DIR/mcp_plugins/$MCP_ID"
+log "    Linux 运行: $LINUX_RUN_DIR/$MCP_ID"
+log "    依赖模式  : $INSTALL_MODE$( [ "$DRY_RUN" = 1 ] && echo '   [DRY RUN]' || true )"
 
-echo "==> [2/5] 安装 @playwright/mcp@${MCP_VER}（全局，锁版本）"
-if [ ! -f "$CLI_JS" ]; then
-  if ! npm i -g "@playwright/mcp@${MCP_VER}" > /tmp/pw_npm.log 2>&1; then
-    echo "❌ npm 安装失败"
-    echo "   国内加速: npm config set registry https://registry.npmmirror.com"
-    echo "   若报 EACCES/EPERM: proot 环境需以 root 运行（sudo 或直接 root 用户）；Termux 原生无需"
-    tail -5 /tmp/pw_npm.log
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+FORWARDER_TEMPLATE="$SCRIPT_DIR/scripts/playwright_mcp.py"
+
+ANDROID_DIR="$OPERIT_DATA_DIR/mcp_plugins/$MCP_ID"
+RUN_DIR="$LINUX_RUN_DIR/$MCP_ID"
+
+# ---------------------------------------------------------------- 2. 插件文件准备
+step "[2/6] 准备插件文件（转发器 / 依赖声明 / 标志文件）"
+if [ "$DRY_RUN" = 1 ]; then
+  log "    [dry-run] 将在 $ANDROID_DIR 放置 4 个文件"
+else
+  mkdir -p "$ANDROID_DIR"
+  if [ ! -f "$FORWARDER_TEMPLATE" ]; then
+    warn "未找到 $FORWARDER_TEMPLATE（脚本可能被单独下载）"
+    warn "   请从仓库 scripts/playwright_mcp.py 获取转发器，或直接使用 Release zip"
     exit 1
+  fi
+  cp "$FORWARDER_TEMPLATE" "$ANDROID_DIR/playwright_mcp.py"
+  cp "$SCRIPT_DIR/requirements.txt" "$ANDROID_DIR/requirements.txt" 2>/dev/null \
+    || printf '# 无 Python 依赖；仅用于 PYTHON 项目判定\n' > "$ANDROID_DIR/requirements.txt"
+  if [ -f "$SCRIPT_DIR/package.json" ]; then
+    cp "$SCRIPT_DIR/package.json" "$ANDROID_DIR/package.json"
+  else
+    printf '{\n  "name": "playwright-mcp-for-operit-runtime",\n  "private": true,\n  "dependencies": { "%s": "%s" }\n}\n' "@playwright/mcp" "$MCP_VER" > "$ANDROID_DIR/package.json"
+  fi
+  log "    ✅ playwright_mcp.py / requirements.txt / package.json"
+fi
+
+# ---------------------------------------------------------------- 3. Chromium 探测
+step "[3/6] Chromium 探测（复用优先，不阻塞）"
+find_chrome() {
+  local best="" best_build=0 base found build
+  for base in "$HOME/.cache/ms-playwright" "/root/.cache/ms-playwright" "${PLAYWRIGHT_BROWSERS_PATH:-}"; do
+    [ -n "$base" ] && [ -d "$base" ] || continue
+    while IFS= read -r found; do
+      [ -n "$found" ] || continue
+      build="$(printf '%s' "$found" | sed -n 's|.*chromium-\([0-9][0-9]*\).*|\1|p' | head -1 || true)"
+      [ -n "$build" ] || build=0
+      if [ "$build" -gt "$best_build" ] 2>/dev/null; then
+        best_build="$build"; best="$found"
+      elif [ -z "$best" ]; then
+        best="$found"
+      fi
+    done < <(find "$base" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M 2>/dev/null || true)
+  done
+  [ -n "$best" ] && printf '%s' "$best"
+}
+CHROME_BIN="$(find_chrome || true)"
+if [ -n "$CHROME_BIN" ]; then
+  CHROME_BUILD="$(printf '%s' "$CHROME_BIN" | sed -n 's|.*chromium-\([0-9][0-9]*\).*|\1|p' | head -1 || true)"
+  log "    ✅ 复用已有 Chromium：$CHROME_BIN（build=${CHROME_BUILD:-未知}）"
+  if [ -n "$CHROME_BUILD" ] && [ "$CHROME_BUILD" -lt 1243 ] 2>/dev/null; then
+    warn "build=${CHROME_BUILD} 低于官方期望 1243；跨 build 复用实测兼容，若异常请删除后重跑"
+  fi
+  MISSING="$( (ldd "$CHROME_BIN" 2>/dev/null || true) | grep 'not found' 2>/dev/null | awk '{print $1}' | sort -u | head -5 | tr '\n' ' ' || true)"
+  if [ -n "$MISSING" ]; then
+    warn "检测到缺失共享库: $MISSING"
+    warn "   建议安装: apt install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libasound2 libcups2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2"
   fi
 else
-  echo "    已存在，校验版本..."
-fi
-INSTALLED_VER=$(node -e "console.log(require('${CLI_JS}'.replace('cli.js','package.json')).version)" 2>/dev/null || echo "unknown")
-if [ "$INSTALLED_VER" != "$MCP_VER" ]; then
-  echo "    版本不一致（当前 ${INSTALLED_VER}），自动重装 ${MCP_VER}..."
-  if ! npm i -g "@playwright/mcp@${MCP_VER}" > /tmp/pw_npm.log 2>&1; then
-    echo "❌ 自动重装失败，请手动执行: npm i -g @playwright/mcp@${MCP_VER}"
-    tail -5 /tmp/pw_npm.log
-    exit 1
-  fi
-  INSTALLED_VER=$(node -e "console.log(require('${CLI_JS}'.replace('cli.js','package.json')).version)" 2>/dev/null || echo "unknown")
-fi
-[ "$INSTALLED_VER" != "$MCP_VER" ] && { echo "❌ 重装后版本仍异常: ${INSTALLED_VER}"; exit 1; }
-echo "    版本: ${INSTALLED_VER} ✅"
-
-echo "==> [3/5] 定位 chromium（优先复用已安装，否则自动下载）"
-# 防残缺：只认 >1MB 的 chrome 二进制（下载中断/解压残留的 0 字节空文件会被过滤）
-find_chrome() {
-  # 多路径探测：$HOME 优先，/root 兜底（proot 环境 HOME 可能不同）
-  for base in "$HOME/.cache/ms-playwright" "/root/.cache/ms-playwright"; do
-    [ -d "$base" ] || continue
-    local found
-    found=$(find "$base" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M 2>/dev/null | head -1)
-    [ -n "$found" ] && { echo "$found"; return 0; }
-  done
-  return 1
-}
-CHROME_BIN=""
-CHROME_BIN=$(find_chrome)
-[ -n "$CHROME_BIN" ] && [ ! -s "$CHROME_BIN" ] && CHROME_BIN=""
-if [ -z "$CHROME_BIN" ]; then
-  echo "    未发现完整 chromium，尝试下载 arm64 版（约 150MB）..."
-  pushd "$NPM_ROOT/@playwright/mcp" >/dev/null
-  if ! PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.npmmirror.com/binaries/playwright}" \
-       node node_modules/playwright/cli.js install chromium > /tmp/pw_dl.log 2>&1; then
-    echo "❌ 自动下载失败（常见：镜像源未同步该版本 arm64 build，见 docs/TROUBLESHOOTING.md 问题 2）"
-    echo "   可尝试: export PLAYWRIGHT_DOWNLOAD_HOST=<其他镜像> 后重跑本脚本"
-    tail -5 /tmp/pw_dl.log
-    echo "   请改用「复用已有 chromium」方案（新版机制）："
-    echo "   ① find \$HOME/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M"
-    echo "   ② 将输出路径填入 playwright_mcp.py 转发器的 @CHROME_BIN@ 占位符（或重跑本脚本自动探测）"
-    popd >/dev/null 2>&1 || true
-    exit 1
-  fi
-  popd >/dev/null 2>&1 || true
-  CHROME_BIN=$(find_chrome)
-fi
-[ -z "$CHROME_BIN" ] && { echo "❌ chromium 定位失败"; exit 1; }
-echo "    ✅ $CHROME_BIN"
-
-# build 版本探测：@playwright/mcp 0.0.80 需求 chromium build ${CHROMIUM_REQ}
-# 本机 build < 需求时给提示（跨 build 复用实测可兼容，但不保证所有环境），避免静默挖坑
-CHROME_BUILD=$(echo "$CHROME_BIN" | grep -oE 'chromium-[0-9]+' | grep -oE '[0-9]+' | head -1)
-if [ -n "$CHROME_BUILD" ] && [ "$CHROME_BUILD" -lt "$CHROMIUM_REQ" ] 2>/dev/null; then
-  echo "    ⚠️ 本机 chromium build=${CHROME_BUILD}，@playwright/mcp ${MCP_VER} 官方需求 build=${CHROMIUM_REQ}"
-  echo "       跨 build 复用实测兼容（1234/1237 → 1243 已在本仓库验证），但若启动失败请改用匹配 build："
-  echo "       删除旧版后重跑本脚本自动下载: rm -rf ~/.cache/ms-playwright/chromium-${CHROME_BUILD}* && bash install.sh"
+  log "    未发现本机 Chromium"
+  log "    → 首次启动时由转发器自动下载（约 150MB；可用 PW_MCP_AUTO_DOWNLOAD=0 关闭）"
 fi
 
-# 依赖检查：缺共享库时提前提示（否则启动时才报 libnss3.so 缺失）
-MISSING=$(ldd "$CHROME_BIN" 2>/dev/null | grep "not found" | awk '{print $1}' | sort -u | head -5)
-if [ -n "$MISSING" ]; then
-  echo "    ⚠️ 检测到缺失共享库: $MISSING"
-  echo "       Chromium 启动会失败，建议先安装依赖:"
-  echo "       apt install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libasound2 libcups2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2"
-fi
-
-echo "==> [4/5] 生成完整配置（pluginMetadata 全字段，修复 NPE）"
-# 启动命令用新版 Operit 机制（对齐 Operit 源码 MCPConfigGenerator.kt）：
-# PYTHON 项目 → command = "<pluginDirPath>/venv/bin/python" + args=["-m","playwright_mcp"]
-# 路径硬编码在转发器内，env 留空（Operit 不强求）
-node - "$CHROME_BIN" "$MCP_VER" "$NPM_ROOT" "$ANDROID_DIR" > /dev/null <<'NODE'
+# ---------------------------------------------------------------- 4. 生成配置
+step "[4/6] 生成 pluginMetadata 完整配置（15 字段，防 NPE）"
+SEG_FILE="$(mktemp /tmp/playwright_mcp.segment.XXXXXX.json)"
+INSTALLED_PATH="$(printf '%s' "$ANDROID_DIR" | sed 's|^/sdcard/|/storage/emulated/0/|')"
+node - "$SEG_FILE" "$MCP_VER" "$INSTALLED_PATH" "$REPO_SLUG" <<'NODE'
 const fs = require('fs');
-const chrome = process.argv[2];
-const ver = process.argv[3];
-const npmRoot = process.argv[4];
-const androidDir = process.argv[5];
-// installedPath 跟随 OPERIT_DATA_DIR：/sdcard/ 或 /storage/emulated/0/ 转统一 Android 路径
-const installedPath = androidDir
-  .replace(/^\/sdcard\//, '/storage/emulated/0/')
-  .replace(/^\/storage\/emulated\/0\//, '/storage/emulated/0/');
-// command 用 Operit 生成的绝对路径形式：~/mcp_plugins/<id>/venv/bin/python
+const [segPath, ver, installedPath, repoSlug] = process.argv.slice(2);
 const seg = {
   mcpServers: {
     playwright_mcp: {
@@ -137,8 +160,8 @@ const seg = {
       args: ['-m', 'playwright_mcp'],
       autoApprove: [],
       disabled: false,
-      env: {}
-    }
+      env: {},
+    },
   },
   pluginMetadata: {
     playwright_mcp: {
@@ -147,76 +170,48 @@ const seg = {
       description: 'Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）',
       disabled: false,
       id: 'playwright_mcp',
-      installedPath: installedPath,
+      installedPath,
       installedTime: Date.now(),
       isInstalled: true,
       logoUrl: '',
-      longDescription: 'Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）',
+      longDescription: '基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 24 个 browser_* 工具。',
       name: 'Playwright MCP for Operit',
-      repoUrl: 'https://github.com/x15907982411/playwright-mcp-for-operit',
+      repoUrl: 'https://github.com/' + repoSlug,
       type: 'local',
       updatedAt: new Date().toISOString(),
-      version: ver
-    }
-  }
+      version: ver,
+    },
+  },
 };
-fs.writeFileSync('/tmp/playwright_mcp.segment.json', JSON.stringify(seg, null, 2));
+fs.writeFileSync(segPath, JSON.stringify(seg, null, 2));
 NODE
-echo "    ✅ 配置片段已生成: $SEG"
+log "    ✅ 配置片段已生成"
 
-echo "==> [5/5] 部署：合并主配置（自动备份）+ 双路径目录"
-mkdir -p "$ANDROID_DIR"
-# 新版 Operit（2026-08-22 起）部署机制适配：
-# MCPStarter 强制按「目录名=模块名」生成启动命令，且通过 venv/bin/python -m <目录名> 启动
-# 因此必须放置 playwright_mcp.py 转发器（exec 转发 node cli.js）+ 空 requirements.txt（保 PYTHON 判定）
-# 转发器模板在仓库 scripts/playwright_mcp.py（单一来源，install.sh 与手动部署共用）
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NODE_BIN="$(command -v node)"
-if [ -f "$SCRIPT_DIR/scripts/playwright_mcp.py" ]; then
-  # 从模板复制，替换占位符为真实路径（NODE/CLI/CHROME）
-  sed -e "s|@NODE_BIN@|$NODE_BIN|g" \
-      -e "s|@CLI_JS@|$CLI_JS|g" \
-      -e "s|@CHROME_BIN@|$CHROME_BIN|g" \
-      "$SCRIPT_DIR/scripts/playwright_mcp.py" > "$ANDROID_DIR/playwright_mcp.py"
+# ---------------------------------------------------------------- 5. 双路径部署
+step "[5/6] 双路径部署（Android 源目录 + Linux 运行目录）"
+MAIN_CFG="$OPERIT_DATA_DIR/mcp_plugins/mcp_config.json"
+if [ "$DRY_RUN" = 1 ]; then
+  log "    [dry-run] 跳过写文件"
 else
-  # 兜底：脚本被单独下载（无 scripts/ 目录）时内嵌生成
-  cat > "$ANDROID_DIR/playwright_mcp.py" <<PYEOF
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""Playwright MCP 转发器（Operit 新版机制：python -m playwright_mcp → exec 全局 playwright MCP cli）"""
-import os
-import sys
-NODE = "$NODE_BIN"
-CLI = "$CLI_JS"
-CHROME = "$CHROME_BIN"
-os.execv(NODE, [NODE, CLI, "--headless", "--no-sandbox", "--executable-path", CHROME] + sys.argv[1:])
-PYEOF
-fi
-touch "$ANDROID_DIR/requirements.txt"
-echo "    ✅ 已放置 playwright_mcp.py 转发器（路径: $NODE_BIN / $CLI_JS / $CHROME_BIN）+ requirements.txt"
-if [ -f "$MAIN_CFG" ]; then
-  BAK_FILE="$MAIN_CFG.bak.$(date +%s)"
-  cp "$MAIN_CFG" "$BAK_FILE" && echo "    主配置已备份: $BAK_FILE"
-  # 备份轮换：只保留最近 3 份
-  ls -t "$MAIN_CFG".bak.* 2>/dev/null | tail -n +4 | xargs -r rm -f
-fi
-node - "$MAIN_CFG" <<'NODE'
+  node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));fs.writeFileSync(process.argv[2],JSON.stringify({mcpServers:s.mcpServers},null,2));" \
+    "$SEG_FILE" "$ANDROID_DIR/mcp.config.json"
+
+  if [ -f "$MAIN_CFG" ]; then
+    BAK_FILE="$MAIN_CFG.bak.$(date +%s)"
+    cp "$MAIN_CFG" "$BAK_FILE" && log "    主配置已备份: $(basename "$BAK_FILE")"
+    ( cd "$(dirname "$MAIN_CFG")" && ls -1t "$(basename "$MAIN_CFG").bak."* 2>/dev/null | tail -n +6 | while IFS= read -r old; do rm -f -- "$old"; done ) || true
+  fi
+  node - "$MAIN_CFG" "$SEG_FILE" <<'NODE'
 const fs = require('fs');
-const mainPath = process.argv[2];
-const segPath = '/tmp/playwright_mcp.segment.json';
-let seg;
-try {
-  seg = JSON.parse(fs.readFileSync(segPath, 'utf8'));
-} catch (e) {
-  console.error('❌ 配置片段损坏，请重跑本脚本'); process.exit(1);
-}
+const [mainPath, segPath] = process.argv.slice(2);
+const seg = JSON.parse(fs.readFileSync(segPath, 'utf8'));
 let main = {};
 if (fs.existsSync(mainPath)) {
   try {
     main = JSON.parse(fs.readFileSync(mainPath, 'utf8'));
   } catch (e) {
     console.error('❌ 主配置 JSON 解析失败（可能被手动改坏）: ' + mainPath);
-    console.error('   请检查该文件格式，或从备份 .bak.* 恢复后重跑');
+    console.error('   请检查该文件，或从 .bak.* 备份恢复后重跑');
     process.exit(1);
   }
 }
@@ -227,16 +222,92 @@ main.pluginMetadata.playwright_mcp = seg.pluginMetadata.playwright_mcp;
 fs.writeFileSync(mainPath, JSON.stringify(main, null, 2));
 console.log('    ✅ 已合并进 ' + mainPath);
 NODE
-node -e "const s=JSON.parse(require('fs').readFileSync('/tmp/playwright_mcp.segment.json','utf8'));require('fs').writeFileSync('${ANDROID_DIR}/mcp.config.json', JSON.stringify({mcpServers:s.mcpServers},null,2))"
-mkdir -p "$LINUX_RUN_DIR"
-# 先清理旧的 Linux 运行目录（避免旧文件残留/覆盖挖坑），再全量复制
-rm -rf "$LINUX_RUN_DIR/${MCP_ID}"
-cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
-echo "    ✅ 双路径部署完成（Android 源 + Linux 运行目录: $LINUX_RUN_DIR）"
 
-echo ""
-echo "==> 收尾（Operit 内操作）："
+  mkdir -p "$LINUX_RUN_DIR"
+  rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
+  cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
+  rm -rf "$RUN_DIR/node_modules" 2>/dev/null || true
+  log "    ✅ $ANDROID_DIR"
+  log "    ✅ $RUN_DIR"
+fi
+
+# ---------------------------------------------------------------- 5.5 依赖安装
+if [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
+  step "[5.5/6] 安装依赖（@playwright/mcp@${MCP_VER}）"
+  if [ "$INSTALL_MODE" = "global" ]; then
+    log "    目标: 全局 node_modules"
+    if npm i -g --no-audit --no-fund "${NPM_REG_ARGS[@]+${NPM_REG_ARGS[@]}}" "@playwright/mcp@${MCP_VER}" >/tmp/pw_npm.log 2>&1; then
+      log "    ✅ 全局安装完成"
+    else
+      warn "全局安装失败（常见 EACCES/EPERM → proot 需 root；Termux 需 npm prefix 可写）"
+      warn "   将由转发器首次启动时重试；国内加速: npm config set registry https://registry.npmmirror.com"
+      tail -5 /tmp/pw_npm.log 2>/dev/null || true
+    fi
+  else
+    log "    目标: $RUN_DIR/node_modules（Linux 文件系统，规避 /sdcard FUSE 限制）"
+    if ( cd "$RUN_DIR" && npm install --no-audit --no-fund "${NPM_REG_ARGS[@]+${NPM_REG_ARGS[@]}}" >/tmp/pw_npm.log 2>&1 ); then
+      log "    ✅ 依赖已安装（启动时无需再下载）"
+    else
+      warn "npm install 失败，将由转发器首次启动时重试"
+      warn "   国内加速: npm config set registry https://registry.npmmirror.com"
+      tail -5 /tmp/pw_npm.log 2>/dev/null || true
+    fi
+  fi
+elif [ "$INSTALL_MODE" = "skip" ]; then
+  step "[5.5/6] 跳过依赖安装（交给转发器首次启动时自举）"
+fi
+
+# ---------------------------------------------------------------- 5.6 venv（PYTHON 项目启动必需）
+# 启动命令是 venv/bin/python -m playwright_mcp，而 Operit 只在「安装/重装」时
+# 创建 venv（单纯重启不会重建），因此脚本自己先建好，避免首次重启报错。
+if [ "$DRY_RUN" = 0 ]; then
+  step "[5.6/6] 准备 venv（$RUN_DIR/venv）"
+  if [ -x "$RUN_DIR/venv/bin/python" ]; then
+    log "    ✅ 已存在，跳过"
+  elif python3 -m venv "$RUN_DIR/venv" >/dev/null 2>&1; then
+    log "    ✅ 已创建（启动命令 venv/bin/python -m playwright_mcp 可用）"
+  else
+    warn "venv 创建失败（缺 python3-venv？）—— Operit 安装/重装插件时会自动创建"
+  fi
+fi
+
+# ---------------------------------------------------------------- 6. 结构校验
+step "[6/6] 结构校验"
+if [ "$DRY_RUN" = 1 ]; then
+  log "    [dry-run] 跳过"
+else
+  OK=1
+  for f in playwright_mcp.py requirements.txt package.json mcp.config.json; do
+    [ -f "$ANDROID_DIR/$f" ] && log "    ✅ Android/$f" || { warn "缺少 Android/$f"; OK=0; }
+  done
+  for f in playwright_mcp.py requirements.txt package.json; do
+    [ -f "$RUN_DIR/$f" ] && log "    ✅ Linux/$f" || { warn "缺少 Linux/$f"; OK=0; }
+  done
+  if [ -f "$RUN_DIR/node_modules/@playwright/mcp/cli.js" ]; then
+    log "    ✅ MCP 包已就位（node_modules）"
+  else
+    log "    ℹ️  MCP 包未就位（将由转发器首次启动时安装）"
+  fi
+  if [ -x "$RUN_DIR/venv/bin/python" ]; then
+    log "    ✅ venv 已就位"
+  else
+    log "    ℹ️  venv 未就位（Operit 安装/重装时会创建）"
+  fi
+  if node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$ANDROID_DIR/mcp.config.json" 2>/dev/null; then
+    log "    ✅ mcp.config.json JSON 合法"
+  else
+    warn "mcp.config.json 非法"; OK=0
+  fi
+  [ "$OK" = 1 ] || warn "存在校验项失败，请查看上面输出"
+fi
+
+# ---------------------------------------------------------------- 收尾
+echo
+echo "==> 收尾（在 Operit 内操作）："
 echo "  1. 重启 MCP: operit_editor:restart_mcp_with_logs → 预期全部 success"
 echo "  2. 验证:     ping_mcp(playwright_mcp) → 应列出 24 个 browser_* 工具"
 echo "  3. 冒烟:     browser_navigate('https://www.baidu.com')"
+echo ""
+echo "  ℹ️  首次启动若缺依赖/Chromium，会自动补齐（日志：$RUN_DIR/bootstrap.log）"
+echo "  🗑  卸载：bash uninstall.sh"
 echo "✅ 部署完成"
