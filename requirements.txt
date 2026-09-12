@@ -1,0 +1,3 @@
+# Playwright MCP for Operit 无 Python 依赖。
+# 本文件仅用于让 Operit 将插件判定为 PYTHON 项目（venv/bin/python -m <模块名> 启动）。
+# Node 依赖声明见 package.json（dependencies: @playwright/mcp）。
