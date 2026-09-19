@@ -40,9 +40,25 @@ import subprocess
 import sys
 import time
 
+def _int_env(name: str, default: int) -> int:
+    """读取整数型环境变量；非法值只告警并回退默认值，不让配置笔误搞崩进程。
+
+    ⚠️ 这里不能用 log()：它依赖 LOG_MAX_BYTES，而本函数可能在其之前被调用。
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        print("[warn] 环境变量 %s=%r 不是合法整数，已回退默认值 %d" % (name, raw, default),
+              file=sys.stderr)
+        return default
+
+
 MCP_PKG = "@playwright/mcp"
 MCP_VER = os.environ.get("PW_MCP_VER", "0.0.82")
-MIN_CHROMIUM_BUILD = int(os.environ.get("PW_MCP_MIN_BUILD", "1243"))
+MIN_CHROMIUM_BUILD = _int_env("PW_MCP_MIN_BUILD", 1243)
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, "bootstrap.log")
 
@@ -53,8 +69,8 @@ def _stamp() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
-LOG_MAX_BYTES = int(os.environ.get("PW_MCP_LOG_MAX", str(1024 * 1024)))
-_log_rotated = False
+LOG_MAX_BYTES = _int_env("PW_MCP_LOG_MAX", 1024 * 1024)
+_log_rotated = False  # 仅在进程首次 log() 时检查一次大小；此后不再 stat（转发器生命周期极短）
 
 
 def _rotate_log_if_needed() -> None:
@@ -129,7 +145,8 @@ def _node_major(node_path: str) -> int | None:
         return None
 
 
-def run(cmd: list[str], timeout: int = 900, env: dict | None = None) -> subprocess.CompletedProcess:
+def run(cmd: list[str], timeout: int = 900, env: dict | None = None,
+        cwd: str | None = None) -> subprocess.CompletedProcess:
     merged = os.environ.copy()
     if env:
         merged.update(env)
@@ -140,6 +157,7 @@ def run(cmd: list[str], timeout: int = 900, env: dict | None = None) -> subproce
         text=True,
         timeout=timeout,
         env=merged,
+        cwd=cwd,
     )
 
 
@@ -194,7 +212,7 @@ def install_mcp(node: str) -> str | None:
         except OSError:
             pass
     try:
-        proc = run(["npm", "install", "--no-audit", "--no-fund", *npm_registry_args(), spec], timeout=900)
+        proc = run(["npm", "install", "--no-audit", "--no-fund", *npm_registry_args(), spec], timeout=900, cwd=HERE)  # #3 显式 cwd
         if proc.returncode == 0:
             cli = os.path.join(HERE, "node_modules", MCP_PKG, "cli.js")
             if os.path.isfile(cli):
