@@ -189,7 +189,20 @@ fi
 step "[4/6] 生成 pluginMetadata 完整配置（15 字段，防 NPE）"
 SEG_FILE="$(mktemp /tmp/playwright_mcp.segment.XXXXXX.json)"
 INSTALLED_PATH="$(printf '%s' "$ANDROID_DIR" | sed 's|^/sdcard/|/storage/emulated/0/|')"
-VENV_PY="$LINUX_RUN_DIR/$MCP_ID/venv/bin/python"
+# Operit 的 command 必须用 ~/ 形式（$HOME 才是运行目录）；写成绝对路径会被加载器剔除
+case "$LINUX_RUN_DIR" in
+  "$HOME"/*)
+    VENV_PY="~/${LINUX_RUN_DIR#"$HOME"/}/$MCP_ID/venv/bin/python"
+    ;;
+  *)
+    VENV_PY="$LINUX_RUN_DIR/$MCP_ID/venv/bin/python"
+    ;;
+esac
+# 自检：command 必须是 ~/ 形式，否则 Operit 加载器会直接跳过该插件
+case "$VENV_PY" in
+  "~"/*) : ;;
+  *) warn "    ! VENV_PY 未使用 ~/ 形式（$VENV_PY）——Operit 可能无法加载该插件" ;;
+esac
 node - "$SEG_FILE" "$MCP_VER" "$INSTALLED_PATH" "$REPO_SLUG" "$VENV_PY" "$PLUGIN_VER" <<'NODE'
 const fs = require('fs');
 const [segPath, ver, installedPath, repoSlug, venvPy, pluginVer] = process.argv.slice(2);
