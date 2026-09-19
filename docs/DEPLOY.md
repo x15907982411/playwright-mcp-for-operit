@@ -1,7 +1,7 @@
 # 手动部署手册（DEPLOY.md）
 
 > 适用环境：Operit（Android）+ proot Ubuntu 24（aarch64）。
-> 本文记录完整手动部署流程；一键脚本见 [install.sh](../install.sh)（v1.0.5 已自动完成第 1~6 步）。
+> 本文记录完整手动部署流程；一键脚本见 [install.sh](../install.sh)（v1.0.6 已自动完成第 1~6 步）。
 
 ## 目录
 
@@ -55,10 +55,10 @@ rm -rf ~/mcp_plugins/playwright_mcp
 cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp ~/mcp_plugins/
 
 # 方式 A：本地安装（推荐）
-cd ~/mcp_plugins/playwright_mcp && npm install --no-audit --no-fund
+cd ~/mcp_plugins/playwright_mcp && npm install --no-audit --no-fund --registry https://registry.npmjs.org
 
 # 方式 B：全局安装
-npm i -g @playwright/mcp@0.0.80
+npm i -g @playwright/mcp@0.0.82 --registry https://registry.npmjs.org
 
 # 方式 C：什么都不做 —— 首次启动时转发器会自动补齐（见第 6 节）
 ```
@@ -67,7 +67,7 @@ npm i -g @playwright/mcp@0.0.80
 
 ## 3. 写入 Operit 配置
 
-**直接复制仓库 [config/mcp_config.json](../config/mcp_config.json)（v1.0.5 全字段模板）**，将其中 `playwright_mcp` 条目合并进 Operit 的 `/sdcard/Download/Operit/mcp_plugins/mcp_config.json`。
+**直接复制仓库 [config/mcp_config.json](../config/mcp_config.json)（v1.0.6 全字段模板）**，将其中 `playwright_mcp` 条目合并进 Operit 的 `/sdcard/Download/Operit/mcp_plugins/mcp_config.json`。
 
 两个关键约束：
 
@@ -80,7 +80,7 @@ npm i -g @playwright/mcp@0.0.80
 {
   "mcpServers": {
     "playwright_mcp": {
-      "command": "~/mcp_plugins/playwright_mcp/venv/bin/python",  // PYTHON 项目启动形式
+      "command": "~/mcp_plugins/playwright_mcp/venv/bin/python",  // PYTHON 项目启动形式；若自定义了 LINUX_RUN_DIR，请同步改此路径（install.sh 会自动写成实际绝对路径）
       "args": ["-m", "playwright_mcp"],                           // 配合自举转发器
       "autoApprove": [],
       "disabled": false,
@@ -98,12 +98,12 @@ npm i -g @playwright/mcp@0.0.80
       "installedTime": 1788600000000,
       "isInstalled": true,
       "logoUrl": "",
-      "longDescription": "基于官方 @playwright/mcp 的网页自动化插件（24 个 browser_* 工具）。",
+      "longDescription": "基于官方 @playwright/mcp 的网页自动化插件（25 个 browser_* 工具）。",
       "name": "Playwright MCP for Operit",
       "repoUrl": "https://github.com/x15907982411/playwright-mcp-for-operit",
       "type": "local",
-      "updatedAt": "2026-09-12T00:00:00Z",
-      "version": "1.0.5"
+      "updatedAt": "2026-09-19T00:00:00Z",
+      "version": "1.0.6"
     }
   }
 }
@@ -134,7 +134,7 @@ python3 -m venv venv
 | 步骤 | 操作 | 预期结果 |
 |---|---|---|
 | 1 | Operit 内触发 `restart_mcp_with_logs` | 全部 success（首次启动可能较慢，见第 6 节） |
-| 2 | `ping_mcp(playwright_mcp)` | 列出 **24 个 `browser_*` 工具**（以它为准，重启工具报错不代表失败） |
+| 2 | `ping_mcp(playwright_mcp)` | 列出 **25 个 `browser_*` 工具**（以它为准，重启工具报错不代表失败） |
 | 3 | 冒烟测试 `browser_navigate("https://www.baidu.com")` | 返回标题「百度一下，你就知道」 |
 
 ## 6. 自举机制（为什么装完就能用）
@@ -154,11 +154,11 @@ python3 -m venv venv
 |---|---|---|
 | `NODE_BIN` | 自动 | 指定 node 可执行文件 |
 | `PLAYWRIGHT_CHROME_BIN` | 自动 | 指定 Chromium 可执行文件 |
-| `PW_MCP_VER` | `0.0.80` | 自动安装时的版本 |
+| `PW_MCP_VER` | `0.0.82` | 自动安装时的版本 |
 | `PW_MCP_MIN_BUILD` | `1243` | 低于此 build 仅告警 |
 | `PW_MCP_AUTO_INSTALL` | `1` | `0` = 不自动安装 MCP 包 |
 | `PW_MCP_AUTO_DOWNLOAD` | `1` | `0` = 不自动下载 Chromium |
-| `PW_MCP_NPM_REGISTRY` | 系统 | 指定 npm 镜像 |
+| `PW_MCP_NPM_REGISTRY` | `https://registry.npmjs.org` | npm 源。**默认官方源**（0.0.82 的 alpha 依赖镜像可能未同步，用镜像会报 ETARGET）；如需镜像自行指定 |
 | `PW_MCP_EXTRA_ARGS` | 空 | 追加给 MCP server 的启动参数（空格分隔） |
 
 诊断日志：`~/mcp_plugins/playwright_mcp/bootstrap.log`（同时输出到 stderr，Operit 日志可见）。
