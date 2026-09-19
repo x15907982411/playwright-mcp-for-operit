@@ -48,6 +48,7 @@ LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
 DRY_RUN=0
 KEEP_DEPS=0
+KEEP_DEPS_EFFECTIVE=0   # 由 [5/6] 段据实赋值；先给默认值，避免 set -u 下 unbound
 REPO_SLUG="x15907982411/playwright-mcp-for-operit"
 
 SEG_FILE=""
@@ -127,7 +128,7 @@ else
         -o "$TMP_FWD" 2>/dev/null \
        && [ -s "$TMP_FWD" ] \
        && head -c 2 "$TMP_FWD" | grep -q '#!' \
-       && python3 -c "import sys;compile(open(sys.argv[1],encoding='utf-8').read(),sys.argv[1],'exec')" "$TMP_FWD" 2>/dev/null; then
+&& { command -v python3 >/dev/null 2>&1 && python3 -c "import sys;compile(open(sys.argv[1],encoding='utf-8').read(),sys.argv[1],'exec')" "$TMP_FWD" 2>/dev/null || ! command -v python3 >/dev/null 2>&1; }; then
       mv -f "$TMP_FWD" "$ANDROID_DIR/playwright_mcp.py"
       log "    V 已自动下载转发器（GitHub API，已校验）"
     else
@@ -243,7 +244,7 @@ else
       warn "主配置备份失败，已中止（原文件未改动）"
       exit 1
     fi
-    ( cd "$(dirname "$MAIN_CFG")" && find . -maxdepth 1 -name "$(basename "$MAIN_CFG").bak.*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | tail -n +6 | cut -d' ' -f2- | while IFS= read -r old; do rm -f -- "$old"; done ) || true
+    ( cd "$(dirname "$MAIN_CFG")" && ls -1t "$(basename "$MAIN_CFG").bak."* 2>/dev/null | tail -n +6 | while IFS= read -r old; do rm -f -- "$old"; done ) || true
   fi
   node - "$MAIN_CFG" "$SEG_FILE" <<'NODE'
 const fs = require('fs');
@@ -279,12 +280,11 @@ console.log('    ✅ 已合并进 ' + mainPath);
 NODE
 
   mkdir -p "$LINUX_RUN_DIR"
-  KEEP_DEPS_EFFECTIVE=0
   if [ "$KEEP_DEPS" = 1 ] && [ -d "$RUN_DIR" ]; then
     KEEP_DEPS_EFFECTIVE=1
     # --keep-deps：不重建目录，只覆盖脚本文件，完整保留 node_modules / venv
     for _f in playwright_mcp.py requirements.txt package.json; do
-      [ -f "$ANDROID_DIR/$_f" ] && cp "$ANDROID_DIR/$_f" "$RUN_DIR/$_f"
+      if [ -f "$ANDROID_DIR/$_f" ]; then cp "$ANDROID_DIR/$_f" "$RUN_DIR/$_f"; fi
     done
     log "    i  --keep-deps：已保留 $RUN_DIR（node_modules / venv 未动）"
   else
