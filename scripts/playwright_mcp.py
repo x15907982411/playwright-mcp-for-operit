@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright MCP for Operit —— 自举转发器 (v1.0.5)
+Playwright MCP for Operit —— 自举转发器 (v1.0.6)
 
 设计目标：无论从 Operit 市场（自动 npm install）还是手动解压安装，
 首次启动都能自己把依赖补齐，做到真正的「装完即用」。
@@ -21,7 +21,7 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.5)
 环境变量（均可选）：
   NODE_BIN                 指定 node 可执行文件
   PLAYWRIGHT_CHROME_BIN    指定 Chromium 可执行文件
-  PW_MCP_VER               MCP 版本，默认 0.0.80
+  PW_MCP_VER               MCP 版本，默认 0.0.82
   PW_MCP_MIN_BUILD         期望的 chromium build，默认 1243（低于此值仅告警不报错）
   PW_MCP_AUTO_INSTALL      0 = 不自动安装 MCP 包
   PW_MCP_AUTO_DOWNLOAD     0 = 不自动下载 Chromium
@@ -41,7 +41,7 @@ import sys
 import time
 
 MCP_PKG = "@playwright/mcp"
-MCP_VER = os.environ.get("PW_MCP_VER", "0.0.80")
+MCP_VER = os.environ.get("PW_MCP_VER", "0.0.82")
 MIN_CHROMIUM_BUILD = int(os.environ.get("PW_MCP_MIN_BUILD", "1243"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, "bootstrap.log")
@@ -53,10 +53,28 @@ def _stamp() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
 
+LOG_MAX_BYTES = int(os.environ.get("PW_MCP_LOG_MAX", str(1024 * 1024)))
+_log_rotated = False
+
+
+def _rotate_log_if_needed() -> None:
+    """日志超过 LOG_MAX_BYTES 时轮转一份（bootstrap.log.1），避免无限膨胀。"""
+    global _log_rotated
+    if _log_rotated:
+        return
+    _log_rotated = True
+    try:
+        if os.path.isfile(LOG_PATH) and os.path.getsize(LOG_PATH) > LOG_MAX_BYTES:
+            os.replace(LOG_PATH, LOG_PATH + ".1")
+    except OSError:
+        pass
+
+
 def log(msg: str, level: str = "INFO") -> None:
     line = f"[{_stamp()}][{level}] {msg}"
     print(f"[playwright_mcp] {msg}", file=sys.stderr, flush=True)
     try:
+        _rotate_log_if_needed()
         with open(LOG_PATH, "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
@@ -87,8 +105,28 @@ def find_node() -> str | None:
     ]
     for cand in candidates:
         if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
+            major = _node_major(cand)
+            if major is None:
+                log(f"跳过 {cand}（无法解析版本）", "WARN")
+                continue
+            if major < 18:
+                log(f"跳过 {cand}（node {major} < 18，不满足要求）", "WARN")
+                continue
             return cand
     return None
+
+
+def _node_major(node_path: str) -> int | None:
+    """返回 node 主版本号；解析失败返回 None。"""
+    try:
+        proc = subprocess.run(
+            [node_path, "-p", "process.versions.node.split('.')[0]"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15,
+        )
+        raw = (proc.stdout or b"").decode("utf-8", "replace").strip()
+        return int(raw) if raw.isdigit() else None
+    except Exception:
+        return None
 
 
 def run(cmd: list[str], timeout: int = 900, env: dict | None = None) -> subprocess.CompletedProcess:
@@ -106,8 +144,10 @@ def run(cmd: list[str], timeout: int = 900, env: dict | None = None) -> subproce
 
 
 def npm_registry_args() -> list[str]:
-    registry = os.environ.get("PW_MCP_NPM_REGISTRY")
-    return ["--registry", registry] if registry else []
+    # 默认用官方源：0.0.82 依赖 playwright-core@1.64.0-alpha-*（alpha），
+    # 国内镜像 npmmirror 可能未同步 -> ETARGET。如需镜像，设 PW_MCP_NPM_REGISTRY。
+    registry = os.environ.get("PW_MCP_NPM_REGISTRY") or "https://registry.npmjs.org"
+    return ["--registry", registry]
 
 
 def find_mcp_cli(node: str) -> tuple[str | None, str]:
@@ -265,7 +305,7 @@ def main() -> None:
         if not cli:
             die(
                 f"未找到且无法自动安装 {MCP_PKG}@{MCP_VER}",
-                "手动安装：npm i -g @playwright/mcp@0.0.80（国内可加 --registry https://registry.npmmirror.com）；"
+                "手动安装：npm i -g @playwright/mcp@0.0.82 --registry https://registry.npmjs.org（alpha 依赖需官方源，国内镜像可能报 ETARGET）；"
                 "或设置 PW_MCP_AUTO_INSTALL=0 禁用自动安装后自行准备",
             )
     else:
