@@ -16,6 +16,7 @@
 
 ## 目录
 
+- [版本更新记录（CHANGELOG）](#changelog)
 - [环境要求](#环境要求)
 - [它能做什么](#它能做什么)
 - [效果演示](#效果演示)
@@ -178,6 +179,7 @@ browser_take_screenshot()                     // 截图留证
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | 故障排查（含首次启动自举、镜像缺失、依赖库等） |
 | [market/README.md](market/README.md) | **发布到市场的机制说明与配置规范**（含自动安装行为） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 报告 Bug / 提交 PR |
+| [CHANGELOG.md](CHANGELOG.md) | **版本更新记录**（含插件版本与上游 MCP 版本解耦说明） |
 | [SECURITY.md](SECURITY.md) | 漏洞报告流程 |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 行为准则 |
 
