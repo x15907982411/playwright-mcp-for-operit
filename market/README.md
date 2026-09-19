@@ -52,7 +52,7 @@
 
 1. 在 Operit 应用中打开**发布页面**，选择本地已构建的插件文件（本仓库即 `config/mcp_config.json`）。
 2. 「发布资源来源」选择 **引用 GitHub Release 资产**。
-3. 填写作者仓库链接（如 `https://github.com/x15907982411/playwright-mcp-for-operit`），加载后选择 Release（如 `v1.0.5`）和对应 zip 资产。
+3. 填写作者仓库链接（如 `https://github.com/x15907982411/playwright-mcp-for-operit`），加载后选择 Release（如 `v1.0.6`）和对应 zip 资产。
 4. 填写插件名称、介绍、分类、版本、支持的软件版本。
 5. 将配置 JSON（见 `publish_config.example.json`，或直接使用仓库根 `config/mcp_config.json`）粘贴到配置区域。
 6. 确认市场登记。Operit 会核对 Release 资产与本地文件一致，并由市场服务确认 Release 创建者即当前登录的 GitHub 作者。
@@ -138,18 +138,18 @@
       "installedTime": 1788600000000,
       "isInstalled": true,
       "logoUrl": "",
-      "longDescription": "基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 24 个 browser_* 工具。",
+      "longDescription": "基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 25 个 browser_* 工具。",
       "name": "Playwright MCP for Operit",
       "repoUrl": "https://github.com/x15907982411/playwright-mcp-for-operit",
       "type": "local",
-      "updatedAt": "2026-09-12T00:00:00Z",
-      "version": "1.0.5"
+      "updatedAt": "2026-09-19T00:00:00Z",
+      "version": "1.0.6"
     }
   }
 }
 ```
 
-**为什么这样填（v1.0.5 设计要点）：**
+**为什么这样填（v1.0.6 设计要点）：**
 
 | 字段/文件 | 值 | 原因 |
 |---|---|---|
@@ -166,7 +166,7 @@
 1. 市场装完 → 重启 MCP → 首次启动会依次检查：本地 MCP 包 → 全局 MCP 包 → 自动 `npm install`；然后检查 Chromium → 复用 → 自动下载（约 150MB，数分钟）。
 2. 日志写到 `~/mcp_plugins/playwright_mcp/bootstrap.log`，可在 Operit 日志或文件管理器查看。
 3. 若首次启动因下载超时失败，**再重启一次 MCP 即可**（包/浏览器已下载完成）。
-4. 重启工具报 `Unknown error` 不代表失败 —— 以 `ping_mcp` 能否列出 24 个工具为准。
+4. 重启工具报 `Unknown error` 不代表失败 —— 以 `ping_mcp` 能否列出 25 个工具为准。
 
 ---
 
