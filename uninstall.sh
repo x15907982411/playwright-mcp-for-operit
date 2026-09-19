@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Playwright MCP for Operit - 卸载脚本 (v1.0.5)
+# Playwright MCP for Operit - 卸载脚本 (v1.0.6)
 #
 # 用法:
 #   bash uninstall.sh              # 移除插件（双路径目录 + mcp_config.json 条目，自动备份）
@@ -26,13 +26,14 @@ for arg in "$@"; do
     --keep-files) KEEP_FILES=1 ;;
     --dry-run)    DRY_RUN=1    ;;
     --purge)      PURGE=1      ;;
-    -h|--help)    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    awk 'NR>2 { if (/^# ={10,}/) exit; if (/^#/) { sub(/^# ?/, ""); print } }' "$0"; exit 0 ;;
     *) echo "⚠️  未知参数: $arg" ;;
   esac
 done
 
 run() {
-  if [ "$DRY_RUN" = 1 ]; then echo "    [dry-run] $*"; else eval "$@"; fi
+  # 不用 eval：直接执行参数数组，避免路径含特殊字符时的字符串逃逸
+  if [ "$DRY_RUN" = 1 ]; then echo "    [dry-run] $*"; else "$@"; fi
 }
 
 log() { echo "$*"; }
@@ -43,7 +44,14 @@ log "==> 卸载 Playwright MCP for Operit"
 if [ -f "$MAIN_CFG" ]; then
   if command -v node >/dev/null 2>&1; then
     if [ "$DRY_RUN" = 0 ]; then
-      cp "$MAIN_CFG" "$MAIN_CFG.bak.$(date +%s)" && log "    主配置已备份"
+      BAK="$MAIN_CFG.bak.$(date +%s)"
+      if cp "$MAIN_CFG" "$BAK"; then
+        log "    主配置已备份: $(basename "$BAK")"
+      else
+        log "    ⚠️ 备份失败，已中止（原文件未改动）"; exit 1
+      fi
+      # 与 install.sh 一致：只保留最近 5 份备份
+      ( cd "$(dirname "$MAIN_CFG")" && find . -maxdepth 1 -name "$(basename "$MAIN_CFG").bak.*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | tail -n +6 | cut -d' ' -f2- | while IFS= read -r old; do rm -f -- "$old"; done ) || true
     fi
     if [ "$DRY_RUN" = 1 ]; then
       log "    [dry-run] 从 mcp_config.json 移除 mcpServers.playwright_mcp 与 pluginMetadata.playwright_mcp"
@@ -60,7 +68,7 @@ const id = 'playwright_mcp';
 let removed = 0;
 if (cfg.mcpServers && cfg.mcpServers[id]) { delete cfg.mcpServers[id]; removed++; }
 if (cfg.pluginMetadata && cfg.pluginMetadata[id]) { delete cfg.pluginMetadata[id]; removed++; }
-fs.writeFileSync(p, JSON.stringify(cfg, null, 2));
+fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n');
 console.log('    ✅ 已从主配置移除 ' + removed + ' 个条目');
 NODE
     fi
@@ -75,12 +83,12 @@ fi
 if [ "$KEEP_FILES" = 1 ]; then
   log "    --keep-files：保留插件目录"
 else
-  run "rm -rf '$LINUX_RUN_DIR/$MCP_ID'"
+  run rm -rf "$LINUX_RUN_DIR/$MCP_ID"
   if [ "$PURGE" = 1 ]; then
-    run "rm -rf '$ANDROID_DIR'"
+    run rm -rf "$ANDROID_DIR"
     log "    --purge：Android 源目录（含 node_modules）已删"
   else
-    run "rm -f '$ANDROID_DIR/playwright_mcp.py' '$ANDROID_DIR/mcp.config.json' '$ANDROID_DIR/bootstrap.log'"
+    run rm -f "$ANDROID_DIR/playwright_mcp.py" "$ANDROID_DIR/mcp.config.json" "$ANDROID_DIR/bootstrap.log"
     log "    （Android 源目录其余文件保留；如需彻底删除加 --purge）"
   fi
   log "    ✅ 已移除：$LINUX_RUN_DIR/$MCP_ID"
