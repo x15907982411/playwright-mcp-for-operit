@@ -1,16 +1,16 @@
 # Playwright MCP for Operit
 
-[![version](https://img.shields.io/badge/version-1.0.5-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
+[![version](https://img.shields.io/badge/version-1.0.6-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%20%2B%20proot%20arm64-blueviolet?style=flat-square)](#环境要求)
-[![tools](https://img.shields.io/badge/browser__tools-24-orange?style=flat-square)](#它能做什么)
-[![upstream](https://img.shields.io/badge/upstream-%40playwright%2Fmcp%400.0.80-black?style=flat-square)](https://github.com/microsoft/playwright-mcp)
+[![tools](https://img.shields.io/badge/browser__tools-25-orange?style=flat-square)](#它能做什么)
+[![upstream](https://img.shields.io/badge/upstream-%40playwright%2Fmcp%400.0.82-black?style=flat-square)](https://github.com/microsoft/playwright-mcp)
 
 > **为 Operit 装上真正的浏览器。**
 >
 > 让你的 AI 助手自己打开网页、阅读内容、搜索填表、截图取证——一切自动化，全程可观测。
 
-本项目将微软官方的 [Playwright MCP](https://github.com/microsoft/playwright-mcp)（v0.0.80）接入 [Operit](https://github.com/AAswordman/Operit)（Android 上的 AI 助手）。基于 Chromium 内核，在手机上获得与桌面浏览器一致的渲染与交互能力。
+本项目将微软官方的 [Playwright MCP](https://github.com/microsoft/playwright-mcp)（v0.0.82）接入 [Operit](https://github.com/AAswordman/Operit)（Android 上的 AI 助手）。基于 Chromium 内核，在手机上获得与桌面浏览器一致的渲染与交互能力。
 
 ---
 
@@ -40,10 +40,13 @@
 
 ## 它能做什么
 
-**24 个 `browser_*` 工具**，覆盖「打开 → 操作 → 取证」完整链路，工具面与官方 Playwright MCP v0.0.80 完全一致。
+**25 个 `browser_*` 工具**，覆盖「打开 → 操作 → 取证」完整链路，工具面与官方 Playwright MCP v0.0.82 完全一致。
+
+> v1.0.6 起新增 `browser_emulate_media`（模拟媒体类型/打印/深浅色）；另有 `browser_run_code_unsafe`（执行任意代码）——**该工具能力极强，仅在确认页面可信时使用**。
 
 | 能力 | 说明 |
 |---|---|
+| 🧪 **模拟媒体环境** | `browser_emulate_media`——模拟 screen/print、深浅色主题，测试响应式与打印样式 |
 | 🌐 **打开任意网页** | 真实 Chromium 渲染，JS/CSS 完整执行，不是「抓源码」 |
 | 👀 **阅读页面内容** | 无障碍树快照，结构化输出，AI 可直接理解页面 |
 | 🖱️ **像人一样操作** | 点击、输入、填表、下拉选择、拖拽、悬停、滚动 |
@@ -59,32 +62,55 @@
 
 ## 快速开始
 
-### 方式零：从 Operit 市场安装（最推荐）
+### 方式零：从 Operit 市场安装（条目审核中，暂可能搜不到）
 
 在 Operit 内打开插件市场 → 搜索 **Playwright MCP** → 安装 → 重启 MCP 服务即可。
 
+⚠️ 市场条目目前**仍在审核**，可能搜索不到。**搜不到请直接使用下面的「方式一」**，两者安装结果完全一致。
+
 插件采用**自举设计**：包内只带声明文件（`package.json` / `requirements.txt` / 转发器），依赖与 Chromium 在首次启动时由转发器自动补齐，因此市场包很小、也能做到装完即用。
 
-### 方式一：一键脚本（推荐）
+### 方式一：一键脚本（最推荐）
+**A. 从 Release 下载完整包（国内推荐，无需访问 raw.githubusercontent.com）**
+
+1. 打开 [Releases](https://github.com/x15907982411/playwright-mcp-for-operit/releases/latest)，下载 `playwright-mcp-for-operit-v1.0.6.zip`
+2. 解压后进入目录执行：
 
 ```bash
-# 下载并运行（自动完成：环境检查 → 依赖安装 → Chromium 探测 → 配置生成 → 双路径部署 → venv）
-curl -sL https://raw.githubusercontent.com/x15907982411/playwright-mcp-for-operit/main/install.sh -o install.sh
-bash install.sh
-
-# 可选参数：
-bash install.sh --global       # 依赖装到全局 node_modules
-bash install.sh --skip-deps    # 跳过依赖安装，交给自举转发器首次启动时处理
-bash install.sh --dry-run      # 只检查、不写文件
+unzip playwright-mcp-for-operit-v1.0.6.zip
+cd playwright-mcp-for-operit-v1.0.6
+bash install.sh            # 自动完成：环境检查 → 依赖安装 → Chromium 探测 → 配置生成 → 双路径部署 → venv
 ```
 
-完成后在 Operit 中重启 MCP 服务，`ping_mcp(playwright_mcp)` 能看到 **24 个 `browser_*` 工具**即可使用。
+**B. 只下载 install.sh（需要能访问 raw.githubusercontent.com）**
 
-> ⚠️ `raw.githubusercontent.com` 在国内可能无法直连，可从 [Release](https://github.com/x15907982411/playwright-mcp-for-operit/releases) 的 zip 中提取 `install.sh`。
->
+```bash
+curl -sL https://raw.githubusercontent.com/x15907982411/playwright-mcp-for-operit/main/install.sh -o install.sh
+bash install.sh
+```
+
+> 💡 B 方案单独下载脚本时，脚本会自动从 GitHub API 补齐 `scripts/playwright_mcp.py`；
+> 若本机连 api.github.com 也访问不了，请改用 A 方案（完整包无需联网拉任何脚本）。
+
+**可选参数：**
+
+```bash
+bash install.sh --global       # 依赖装到全局 node_modules
+bash install.sh --skip-deps    # 跳过依赖安装，交给自举转发器首次启动时处理
+bash install.sh --keep-deps    # 重跑时保留已有 node_modules（不重装依赖）
+bash install.sh --dry-run      # 只检查、不写文件
+bash install.sh --help         # 显示完整帮助
+```
+
+完成后在 Operit 中重启 MCP 服务，`ping_mcp(playwright_mcp)` 能看到 **25 个 `browser_*` 工具**即可使用。
+
 > 💡 脚本先保存到本地再执行（非 `curl | bash` 管道），建议运行前先 `cat install.sh` 浏览一遍。
 >
 > 💡 **推荐在 proot 环境执行**：Termux 与 proot 的 `~/.cache` 不互通，双环境切换会重复下载 Chromium。
+>
+> ⚠️ **npm 源提示**：`@playwright/mcp@0.0.82` 依赖的 `playwright-core@1.64.0-alpha-*` 为 alpha 版本，
+> 国内镜像 `registry.npmmirror.com` **可能尚未同步**；若 `npm install` 报 `ETARGET`，请用官方源：
+> `npm install --registry https://registry.npmjs.org`
 >
 > 🗑 卸载：`bash uninstall.sh`（支持 `--keep-files` / `--purge` / `--dry-run`）。
 
@@ -96,13 +122,13 @@ bash install.sh --dry-run      # 只检查、不写文件
 2. 安装 Node 依赖：`npm install`（**在 Linux 运行目录内**，读 `package.json`）——也可跳过，交给首次启动自举
 3. 写入 `mcp_config.json`（使用仓库全字段模板，勿手写精简片段）
 4. 双路径部署（Android 源目录 + Linux 运行目录 `~/mcp_plugins/`）+ 准备 `venv`
-5. 重启 MCP 并验证（`ping_mcp` → 24 个工具）
+5. 重启 MCP 并验证（`ping_mcp` → 25 个工具）
 
 > 📖 每步的完整命令、配置注释与回滚方式，见 **[docs/DEPLOY.md](docs/DEPLOY.md)**。
 
 ## 首次启动会发生什么
 
-无论从市场还是一键脚本安装，首次启动 MCP 时转发器会自动兜底：
+无论用哪种方式安装，首次启动 MCP 时转发器都会自动兜底：
 
 1. 找不到 `@playwright/mcp` → 自动 `npm install`（插件目录本地优先，回退全局）；
 2. 找不到 Chromium → 先复用本机已有的（`~/.cache/ms-playwright`），实在没有才下载（约 150MB，数分钟）；
@@ -134,9 +160,9 @@ browser_take_screenshot()                     // 截图留证
 |---|---|
 | **手机内存够吗？** | Chromium headless 约占 300–500MB，建议可用内存 ≥ 1GB（实测 8 核 + 1GB 环境运行流畅） |
 | **市场装完重启后第一次很慢 / 失败？** | 正常：首次启动要装 MCP 包 + 准备 Chromium（可能下载 150MB）。**再重启一次 MCP** 即可；进度与错误见 `bootstrap.log` |
-| **重启 MCP 报 Unknown error，但插件其实起来了？** | 已知现象：Operit 的重启工具有时会报错，但插件已成功加载。以 `ping_mcp` 能否列出 24 个工具为准 |
-| **`ping_mcp` 只有 24 个工具，不是 25 个？** | **24 个是正确的**。官方 v0.0.80 就是 24 个；早期文档（v1.0.0）写「25」是笔误，v1.0.1 起已修正 |
-| **插件加载不上 / 报 Unknown error？** | 多为 `pluginMetadata` 字段不完整（缺 `updatedAt` 会触发 Operit 空指针）。请用 v1.0.5 的 `install.sh` 或 `config/mcp_config.json`，**不要手写精简片段** |
+| **重启 MCP 报 Unknown error，但插件其实起来了？** | 已知现象：Operit 的重启工具有时会报错，但插件已成功加载。以 `ping_mcp` 能否列出 25 个工具为准 |
+| **`ping_mcp` 工具数对不对？** | 官方 `@playwright/mcp` **v0.0.82 实际是 25 个**。v1.0.0~v1.0.5 文档写「24」是**漏列了 `browser_emulate_media`**，v1.0.6 起已修正 |
+| **插件加载不上 / 报 Unknown error？** | 多为 `pluginMetadata` 字段不完整（缺 `updatedAt` 会触发 Operit 空指针）。请用 v1.0.6 的 `install.sh` 或 `config/mcp_config.json`，**不要手写精简片段** |
 | **会被网站风控吗？** | 无头浏览器访问少数风控严格的站点（如百度搜索）可能触发验证码，属所有自动化方案的通病；可用真实 UA 或带登录态 cookie 缓解 |
 | **和 Operit 内置 browser 包有何区别？** | 内置包在部分设备有内核兼容问题（页面无法加载）；本方案基于官方 MCP server + 完整 Chromium，实测全链路可用，且多出网络抓包、console 日志等能力 |
 
@@ -157,12 +183,12 @@ browser_take_screenshot()                     // 截图留证
 
 ## 相关链接
 
-- 上游 MCP server：[microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)（v0.0.80，**Apache-2.0**）
+- 上游 MCP server：[microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)（v0.0.82，**Apache-2.0**）
 - 运行平台：[AAswordman/Operit](https://github.com/AAswordman/Operit)
 - 浏览器内核：Chromium（arm64 headless）
 
 ## License
 
 - **本项目**（部署脚本 / 配置模板 / 文档）：**MIT**，详见 [LICENSE](LICENSE)
-- **上游 MCP server**：[Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) 为 **Apache-2.0**，安装时通过 npm 获取（`@playwright/mcp@0.0.80`），版权归 Microsoft 所有。本仓库**不包含**上游源代码
+- **上游 MCP server**：[Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) 为 **Apache-2.0**，安装时通过 npm 获取（`@playwright/mcp@0.0.82`），版权归 Microsoft 所有。本仓库**不包含**上游源代码
 - **商标**：Playwright 是 Microsoft 的商标。本项目为独立社区适配项目，与 Microsoft 无隶属关系；项目名中引用「Playwright」仅用于描述兼容性
