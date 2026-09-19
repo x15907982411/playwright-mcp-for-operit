@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================
-# Playwright MCP for Operit - 一键部署脚本 (v1.0.5)
+# Playwright MCP for Operit - 一键部署脚本 (v1.0.6)
 #
 # 用法:
 #   bash install.sh                 # 默认：依赖装到 Linux 运行目录（推荐）
 #   bash install.sh --global        # 依赖装到全局 node_modules
 #   bash install.sh --skip-deps     # 跳过依赖安装（交给自举转发器首次启动时处理）
 #   bash install.sh --dry-run       # 只检查与打印，不写任何文件
+#   bash install.sh --keep-deps     # 重跑时保留已有 node_modules（不重装依赖）
+#   bash install.sh --help          # 显示本帮助
 #
 # 适用环境: Android + proot(Ubuntu) / Termux + node>=18 + Operit
 #   非 Operit 用户请勿使用（配置合并路径与 Operit 深度耦合）
@@ -39,11 +41,12 @@
 set -eu
 
 MCP_ID="playwright_mcp"
-MCP_VER="0.0.80"
+MCP_VER="0.0.82"
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
 DRY_RUN=0
+KEEP_DEPS=0
 REPO_SLUG="x15907982411/playwright-mcp-for-operit"
 
 SEG_FILE=""
@@ -51,15 +54,19 @@ ANDROID_DIR=""
 cleanup() { [ -n "$SEG_FILE" ] && rm -f "$SEG_FILE" 2>/dev/null || true; }
 trap cleanup EXIT
 
-usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() {
+  # 动态输出文件头部注释块（第 3 行起，遇到分隔线停止），避免行号硬编码失效
+  awk 'NR>2 { if (/^# ={10,}/) exit; if (/^#/) { sub(/^# ?/, ""); print } }' "$0"
+}
 
 for arg in "$@"; do
   case "$arg" in
     --global)     INSTALL_MODE="global" ;;
     --skip-deps)  INSTALL_MODE="skip"   ;;
     --dry-run)    DRY_RUN=1             ;;
+    --keep-deps)  KEEP_DEPS=1           ;;
     -h|--help)    usage; exit 0          ;;
-    *) echo "⚠️  未知参数: $arg（可用: --global --skip-deps --dry-run --help）" ;;
+    *) echo "⚠️  未知参数: $arg（已忽略；可用: --global --skip-deps --keep-deps --dry-run --help）" ;;
   esac
 done
 
@@ -67,17 +74,28 @@ log()  { echo "$*"; }
 warn() { echo "⚠️  $*" >&2; }
 step() { echo; echo "==> $*"; }
 
-NPM_REG_ARGS=()
-[ -n "${PW_MCP_NPM_REGISTRY:-}" ] && NPM_REG_ARGS=(--registry "$PW_MCP_NPM_REGISTRY")
+# 默认使用官方源：0.0.82 依赖 playwright-core@1.64.0-alpha-*（alpha 版本），
+# 国内镜像 registry.npmmirror.com 可能尚未同步 → 会报 ETARGET。
+# 如需镜像，显式设置 PW_MCP_NPM_REGISTRY=https://registry.npmmirror.com
+NPM_REG_ARGS=(--registry "${PW_MCP_NPM_REGISTRY:-https://registry.npmjs.org}")
 
 # ---------------------------------------------------------------- 1. 环境检查
 step "[1/6] 环境检查"
 command -v node >/dev/null 2>&1 || { echo "❌ node 未安装（需 ≥ 18）"; exit 1; }
 command -v npm  >/dev/null 2>&1 || { echo "❌ npm 未安装"; exit 1; }
-NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
+NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
+case "$NODE_MAJOR" in
+  (*[!0-9]*|'') echo "❌ 无法解析 node 版本（$(node -v 2>/dev/null || echo "未知")），需 ≥18"; exit 1 ;;
+esac
 if [ "$NODE_MAJOR" -lt 18 ]; then echo "❌ node 版本过低: $(node -v)（需 ≥18）"; exit 1; fi
 log "    node      : $(command -v node) ($(node -v))"
 log "    npm       : $(npm -v)"
+if command -v python3 >/dev/null 2>&1; then
+  log "    python3   : $(command -v python3) ($(python3 -V 2>&1))"
+else
+  warn "python3 未找到 —— venv 将无法创建（Operit 安装/重装插件时会自动创建）"
+  warn "   建议: apt install -y python3 python3-venv"
+fi
 log "    Android 源: $OPERIT_DATA_DIR/mcp_plugins/$MCP_ID"
 log "    Linux 运行: $LINUX_RUN_DIR/$MCP_ID"
 log "    依赖模式  : $INSTALL_MODE$( [ "$DRY_RUN" = 1 ] && echo '   [DRY RUN]' || true )"
@@ -94,12 +112,31 @@ if [ "$DRY_RUN" = 1 ]; then
   log "    [dry-run] 将在 $ANDROID_DIR 放置 4 个文件"
 else
   mkdir -p "$ANDROID_DIR"
-  if [ ! -f "$FORWARDER_TEMPLATE" ]; then
-    warn "未找到 $FORWARDER_TEMPLATE（脚本可能被单独下载）"
-    warn "   请从仓库 scripts/playwright_mcp.py 获取转发器，或直接使用 Release zip"
-    exit 1
+  if [ -f "$FORWARDER_TEMPLATE" ]; then
+    cp "$FORWARDER_TEMPLATE" "$ANDROID_DIR/playwright_mcp.py"
+  else
+    warn "未找到 $FORWARDER_TEMPLATE（脚本被单独下载？）"
+    warn "   -> 尝试从仓库自动下载 scripts/playwright_mcp.py ..."
+    TMP_FWD="$ANDROID_DIR/.playwright_mcp.py.tmp"
+    rm -f "$TMP_FWD"
+    # 先下到临时文件，校验（非空 + shebang）通过后再原子替换，避免断线留半成品
+    if curl -fsSL --max-time 60 \
+        "https://api.github.com/repos/$REPO_SLUG/contents/scripts/playwright_mcp.py?ref=main" \
+        -H "Accept: application/vnd.github.raw" \
+        -o "$TMP_FWD" 2>/dev/null \
+       && [ -s "$TMP_FWD" ] \
+       && head -c 2 "$TMP_FWD" | grep -q '#!' \
+       && python3 -c "import sys;compile(open(sys.argv[1],encoding='utf-8').read(),sys.argv[1],'exec')" "$TMP_FWD" 2>/dev/null; then
+      mv -f "$TMP_FWD" "$ANDROID_DIR/playwright_mcp.py"
+      log "    V 已自动下载转发器（GitHub API，已校验）"
+    else
+      rm -f "$TMP_FWD"
+      warn "    X 自动下载失败或校验未通过（网络受限？）"
+      warn "    请改用 Release zip 完整包安装："
+      warn "    https://github.com/$REPO_SLUG/releases/latest"
+      exit 1
+    fi
   fi
-  cp "$FORWARDER_TEMPLATE" "$ANDROID_DIR/playwright_mcp.py"
   cp "$SCRIPT_DIR/requirements.txt" "$ANDROID_DIR/requirements.txt" 2>/dev/null \
     || printf '# 无 Python 依赖；仅用于 PYTHON 项目判定\n' > "$ANDROID_DIR/requirements.txt"
   if [ -f "$SCRIPT_DIR/package.json" ]; then
@@ -150,13 +187,14 @@ fi
 step "[4/6] 生成 pluginMetadata 完整配置（15 字段，防 NPE）"
 SEG_FILE="$(mktemp /tmp/playwright_mcp.segment.XXXXXX.json)"
 INSTALLED_PATH="$(printf '%s' "$ANDROID_DIR" | sed 's|^/sdcard/|/storage/emulated/0/|')"
-node - "$SEG_FILE" "$MCP_VER" "$INSTALLED_PATH" "$REPO_SLUG" <<'NODE'
+VENV_PY="$LINUX_RUN_DIR/$MCP_ID/venv/bin/python"
+node - "$SEG_FILE" "$MCP_VER" "$INSTALLED_PATH" "$REPO_SLUG" "$VENV_PY" <<'NODE'
 const fs = require('fs');
-const [segPath, ver, installedPath, repoSlug] = process.argv.slice(2);
+const [segPath, ver, installedPath, repoSlug, venvPy] = process.argv.slice(2);
 const seg = {
   mcpServers: {
     playwright_mcp: {
-      command: '~/mcp_plugins/playwright_mcp/venv/bin/python',
+      command: venvPy,
       args: ['-m', 'playwright_mcp'],
       autoApprove: [],
       disabled: false,
@@ -174,7 +212,7 @@ const seg = {
       installedTime: Date.now(),
       isInstalled: true,
       logoUrl: '',
-      longDescription: '基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 24 个 browser_* 工具。',
+      longDescription: '基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 25 个 browser_* 工具。',
       name: 'Playwright MCP for Operit',
       repoUrl: 'https://github.com/' + repoSlug,
       type: 'local',
@@ -193,13 +231,18 @@ MAIN_CFG="$OPERIT_DATA_DIR/mcp_plugins/mcp_config.json"
 if [ "$DRY_RUN" = 1 ]; then
   log "    [dry-run] 跳过写文件"
 else
-  node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));fs.writeFileSync(process.argv[2],JSON.stringify({mcpServers:s.mcpServers},null,2));" \
+  node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));fs.writeFileSync(process.argv[2],JSON.stringify({mcpServers:s.mcpServers},null,2)+'\\n');" \
     "$SEG_FILE" "$ANDROID_DIR/mcp.config.json"
 
   if [ -f "$MAIN_CFG" ]; then
     BAK_FILE="$MAIN_CFG.bak.$(date +%s)"
-    cp "$MAIN_CFG" "$BAK_FILE" && log "    主配置已备份: $(basename "$BAK_FILE")"
-    ( cd "$(dirname "$MAIN_CFG")" && ls -1t "$(basename "$MAIN_CFG").bak."* 2>/dev/null | tail -n +6 | while IFS= read -r old; do rm -f -- "$old"; done ) || true
+    if cp "$MAIN_CFG" "$BAK_FILE"; then
+      log "    主配置已备份: $(basename "$BAK_FILE")"
+    else
+      warn "主配置备份失败，已中止（原文件未改动）"
+      exit 1
+    fi
+    ( cd "$(dirname "$MAIN_CFG")" && find . -maxdepth 1 -name "$(basename "$MAIN_CFG").bak.*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | tail -n +6 | cut -d' ' -f2- | while IFS= read -r old; do rm -f -- "$old"; done ) || true
   fi
   node - "$MAIN_CFG" "$SEG_FILE" <<'NODE'
 const fs = require('fs');
@@ -215,24 +258,46 @@ if (fs.existsSync(mainPath)) {
     process.exit(1);
   }
 }
-main.mcpServers = main.mcpServers || {};
-main.pluginMetadata = main.pluginMetadata || {};
+const isPlainObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+if (!isPlainObj(main.mcpServers)) {
+  if (main.mcpServers !== undefined) {
+    console.error('⚠️  main.mcpServers 不是对象（实际: ' + typeof main.mcpServers + '），已重置为空对象');
+  }
+  main.mcpServers = {};
+}
+if (!isPlainObj(main.pluginMetadata)) {
+  if (main.pluginMetadata !== undefined) {
+    console.error('⚠️  main.pluginMetadata 不是对象（实际: ' + typeof main.pluginMetadata + '），已重置为空对象');
+  }
+  main.pluginMetadata = {};
+}
 main.mcpServers.playwright_mcp = seg.mcpServers.playwright_mcp;
 main.pluginMetadata.playwright_mcp = seg.pluginMetadata.playwright_mcp;
-fs.writeFileSync(mainPath, JSON.stringify(main, null, 2));
+fs.writeFileSync(mainPath, JSON.stringify(main, null, 2) + '\n');
 console.log('    ✅ 已合并进 ' + mainPath);
 NODE
 
   mkdir -p "$LINUX_RUN_DIR"
-  rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
-  cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
-  rm -rf "$RUN_DIR/node_modules" 2>/dev/null || true
+  KEEP_DEPS_EFFECTIVE=0
+  if [ "$KEEP_DEPS" = 1 ] && [ -d "$RUN_DIR" ]; then
+    KEEP_DEPS_EFFECTIVE=1
+    # --keep-deps：不重建目录，只覆盖脚本文件，完整保留 node_modules / venv
+    for _f in playwright_mcp.py requirements.txt package.json; do
+      [ -f "$ANDROID_DIR/$_f" ] && cp "$ANDROID_DIR/$_f" "$RUN_DIR/$_f"
+    done
+    log "    i  --keep-deps：已保留 $RUN_DIR（node_modules / venv 未动）"
+  else
+    rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
+    cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
+  fi
   log "    ✅ $ANDROID_DIR"
   log "    ✅ $RUN_DIR"
 fi
 
 # ---------------------------------------------------------------- 5.5 依赖安装
-if [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
+if [ "$KEEP_DEPS_EFFECTIVE" = 1 ]; then
+  step "[5.5/6] 跳过依赖安装（--keep-deps：目录已保留且依赖在位）"
+elif [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
   step "[5.5/6] 安装依赖（@playwright/mcp@${MCP_VER}）"
   if [ "$INSTALL_MODE" = "global" ]; then
     log "    目标: 全局 node_modules"
@@ -240,7 +305,7 @@ if [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
       log "    ✅ 全局安装完成"
     else
       warn "全局安装失败（常见 EACCES/EPERM → proot 需 root；Termux 需 npm prefix 可写）"
-      warn "   将由转发器首次启动时重试；国内加速: npm config set registry https://registry.npmmirror.com"
+      warn "   将由转发器首次启动时重试；注意 alpha 依赖需官方源"
       tail -5 /tmp/pw_npm.log 2>/dev/null || true
     fi
   else
@@ -249,7 +314,7 @@ if [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
       log "    ✅ 依赖已安装（启动时无需再下载）"
     else
       warn "npm install 失败，将由转发器首次启动时重试"
-      warn "   国内加速: npm config set registry https://registry.npmmirror.com"
+      warn "   注意: 0.0.82 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
       tail -5 /tmp/pw_npm.log 2>/dev/null || true
     fi
   fi
@@ -305,9 +370,13 @@ fi
 echo
 echo "==> 收尾（在 Operit 内操作）："
 echo "  1. 重启 MCP: operit_editor:restart_mcp_with_logs → 预期全部 success"
-echo "  2. 验证:     ping_mcp(playwright_mcp) → 应列出 24 个 browser_* 工具"
+echo "  2. 验证:     ping_mcp(playwright_mcp) → 应列出 25 个 browser_* 工具"
 echo "  3. 冒烟:     browser_navigate('https://www.baidu.com')"
 echo ""
 echo "  ℹ️  首次启动若缺依赖/Chromium，会自动补齐（日志：$RUN_DIR/bootstrap.log）"
 echo "  🗑  卸载：bash uninstall.sh"
-echo "✅ 部署完成"
+if [ "$DRY_RUN" = 1 ]; then
+  echo "✅ 检查完成（dry-run：未写入任何文件）"
+else
+  echo "✅ 部署完成"
+fi
