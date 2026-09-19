@@ -41,7 +41,8 @@
 set -eu
 
 MCP_ID="playwright_mcp"
-MCP_VER="0.0.82"
+MCP_VER="0.0.82"          # 上游 @playwright/mcp 版本
+PLUGIN_VER="1.0.6"       # 本插件自身的版本（写入 pluginMetadata.version）
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
@@ -188,9 +189,9 @@ step "[4/6] 生成 pluginMetadata 完整配置（15 字段，防 NPE）"
 SEG_FILE="$(mktemp /tmp/playwright_mcp.segment.XXXXXX.json)"
 INSTALLED_PATH="$(printf '%s' "$ANDROID_DIR" | sed 's|^/sdcard/|/storage/emulated/0/|')"
 VENV_PY="$LINUX_RUN_DIR/$MCP_ID/venv/bin/python"
-node - "$SEG_FILE" "$MCP_VER" "$INSTALLED_PATH" "$REPO_SLUG" "$VENV_PY" <<'NODE'
+node - "$SEG_FILE" "$MCP_VER" "$INSTALLED_PATH" "$REPO_SLUG" "$VENV_PY" "$PLUGIN_VER" <<'NODE'
 const fs = require('fs');
-const [segPath, ver, installedPath, repoSlug, venvPy] = process.argv.slice(2);
+const [segPath, ver, installedPath, repoSlug, venvPy, pluginVer] = process.argv.slice(2);
 const seg = {
   mcpServers: {
     playwright_mcp: {
@@ -217,7 +218,7 @@ const seg = {
       repoUrl: 'https://github.com/' + repoSlug,
       type: 'local',
       updatedAt: new Date().toISOString(),
-      version: ver,
+      version: pluginVer,
     },
   },
 };
