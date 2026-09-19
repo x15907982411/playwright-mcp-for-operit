@@ -16,7 +16,8 @@
 | 网站弹「安全验证」/验证码 | [问题 8](#问题-8百度等站点弹出安全验证headless-风控) |
 | 截图/产物找不到在哪 | [问题 9](#问题-9截图产物落盘位置) |
 | MCP 启动成功但浏览器报错 | [问题 10](#问题-10mcp-启动成功但浏览器报错) |
-| 工具数是 24 不是 25 | [问题 11](#问题-11ping_mcp-显示-24-个工具不是文档说的-25-个) |
+| npm install 报 ETARGET（alpha 依赖找不到） | [问题 12](#问题-12npm-install-报-etarget) |
+| 工具数是 25 不是旧文档说的 24 | [问题 11](#问题-11ping_mcp-显示-25-个工具旧文档说-24) |
 
 ---
 
@@ -97,7 +98,8 @@ find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linu
 export PLAYWRIGHT_CHROME_BIN=/root/.cache/ms-playwright/chromium-1237/chrome-linux/chrome
 ```
 
-实测 1234/1237（旧版稳定）被 0.0.80 的 playwright-core（1.63-alpha）驱动**完全兼容**（CDP 向后兼容）。
+> **实测（2026-09-19）**：`chromium-1237` 在旧驱动（1.63-alpha）与**新版驱动 `1.64.0-alpha-*` 下均完全兼容**（CDP 向后兼容；实测 0.0.82 启动正常、导航成功）。
+> 结论：**优先复用本机已有 Chromium，不要盲目下载。**
 
 **备选**：换官方 CDN：`PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com/dbazure/download/playwright`（国内可能慢/不通）。
 
@@ -125,11 +127,11 @@ cd ~/mcp_plugins/playwright_mcp && python3 -m venv venv
 
 ## 问题 6：重启报 Unknown error，但 ping_mcp 正常
 
-**现象**：`restart_mcp_with_logs` 返回 `Unknown error`，但去插件状态页看是「已安装」，`ping_mcp(playwright_mcp)` 也能列出 24 个工具。
+**现象**：`restart_mcp_with_logs` 返回 `Unknown error`，但去插件状态页看是「已安装」，`ping_mcp(playwright_mcp)` 也能列出 25 个工具。
 
 **结论：这不是故障**。Operit 的重启工具在部分情况下会抛出错误，但插件实际已成功加载。
 
-**判定标准**：**以 `ping_mcp` 能否列出 24 个 `browser_*` 工具为准**（能列出 = 正常工作）。
+**判定标准**：**以 `ping_mcp` 能否列出 25 个 `browser_*` 工具为准**（能列出 = 正常工作）。
 
 ## 问题 7：插件永远加载不上 / 日志出现 NPE（pluginMetadata 字段缺失）
 
@@ -176,15 +178,52 @@ npx playwright install-deps chromium
 
 > 💡 `install.sh` 会在探测到 Chromium 后自动 `ldd` 检查并列出缺失库，先看它的输出。
 
-## 问题 11：ping_mcp 显示 24 个工具，不是文档说的 25 个？
+## 问题 11：ping_mcp 显示 25 个工具（旧文档说 24）？
 
-**24 个是正确的**。官方 `@playwright/mcp` v0.0.80（npm stable）的 `browser_*` 工具就是 24 个：
+**25 个是正确的**。官方 `@playwright/mcp` v0.0.82（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
 
-`click` / `close` / `console_messages` / `drag` / `drop` / `evaluate` / `file_upload` / `fill_form` / `find` / `handle_dialog` / `hover` / `navigate` / `navigate_back` / `network_request` / `network_requests` / `press_key` / `resize` / `run_code_unsafe` / `select_option` / `snapshot` / `tabs` / `take_screenshot` / `type` / `wait_for`
+`click` / `close` / `console_messages` / `drag` / `drop` / `evaluate` / `file_upload` / `fill_form` / `find` / `handle_dialog` / `hover` / `navigate` / `navigate_back` / `network_request` / `network_requests` / `press_key` / `resize` / `emulate_media` / `run_code_unsafe` / `select_option` / `snapshot` / `tabs` / `take_screenshot` / `type` / `wait_for`
 
-早期文档（v1.0.0）中的「25」笔误已在 **v1.0.1 及以后版本**修正。如果少于 24 个，请检查版本是否为 0.0.80：
+如果少于 25 个，请先确认版本确实是 **0.0.82**（v0.0.80 及更早为 24 个）：
 
 ```bash
 cat ~/mcp_plugins/playwright_mcp/bootstrap.log   # 会打印实际使用的 cli.js 路径
 node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"
+```
+
+---
+
+## 问题 12：npm install 报 ETARGET
+
+**现象**：`npm install`（或首次启动自举）失败，日志提示：
+
+```
+npm error code ETARGET
+npm error notarget No matching version found for playwright-core@1.64.0-alpha-1789764292000.
+```
+
+**根因**：`@playwright/mcp@0.0.82` 依赖的是 **alpha 预发布版** 的 playwright-core
+（形如 `1.64.0-alpha-<时间戳>`）。国内镜像 `registry.npmmirror.com` **默认不同步 alpha / prerelease 版本**，
+所以查不到这个版本号 —— 这与插件本身无关，是镜像同步策略导致的。
+
+**解决**：改用官方源。
+
+从 **v1.0.6 起，`install.sh` 与转发器已默认使用官方源**，正常安装不会遇到此问题；
+只有手动安装、或本机 npm 默认源已设为镜像时才会碰到：
+
+```bash
+# 手动安装：显式指定官方源
+npm install --registry https://registry.npmjs.org
+
+# 或通过环境变量（install.sh 与转发器都会读取）
+export PW_MCP_NPM_REGISTRY=https://registry.npmjs.org
+```
+
+> 💡 命令行 `--registry` 的优先级高于 `.npmrc`，因此即使本地默认源是镜像也会生效。
+
+**验证**：
+
+```bash
+node -e "console.log(require('@playwright/mcp/package.json').version)"
+# 应输出 0.0.82
 ```
