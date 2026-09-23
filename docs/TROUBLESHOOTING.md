@@ -10,6 +10,7 @@
 | 想看插件到底卡在哪一步 | [问题 2](#问题-2怎么读自举日志bootstraplog) |
 | `apt-get update` 大量 404（binary-amd64） | [问题 3](#问题-3apt-get-update-报-404binary-amd64packages) |
 | 下载 Chromium 报 404（NoSuchKey） | [问题 4](#问题-4playwright-下载-chromium-报-404npmmirror-无-arm64-build) |
+| 新版 Chromium 一启动就崩（SIGTRAP / exit 133） | [问题 13](#chromium-sigtrap) |
 | 重启 MCP 报 `Unknown error` | [问题 5](#问题-5restart_mcp_with_logs-报-unknown-error) |
 | 重启报错但插件其实能用 | [问题 6](#问题-6重启报-unknown-error但-ping_mcp-正常) |
 | 插件永远加载不上 / 日志有 NPE | [问题 7](#问题-7插件永远加载不上--日志出现-npepluginmetadata-字段缺失) |
@@ -100,6 +101,8 @@ export PLAYWRIGHT_CHROME_BIN=/root/.cache/ms-playwright/chromium-1237/chrome-lin
 
 > **实测（2026-09-19）**：`chromium-1237` 在旧驱动（1.63-alpha）与**新版驱动 `1.64.0-alpha-*` 下均完全兼容**（CDP 向后兼容；实测 0.0.82 启动正常、导航成功）。
 > 结论：**优先复用本机已有 Chromium，不要盲目下载。**
+>
+> ⚠️ 补充（2026-09-23）：**新版反而会崩** —— rev1246+（CFT 154.x）在 proot 下启动即 SIGTRAP，详见 [问题 13](#chromium-sigtrap)。
 
 **备选**：换官方 CDN：`PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com/dbazure/download/playwright`（国内可能慢/不通）。
 
@@ -226,4 +229,59 @@ export PW_MCP_NPM_REGISTRY=https://registry.npmjs.org
 ```bash
 node -e "console.log(require('@playwright/mcp/package.json').version)"
 # 应输出 0.0.82
+
+---
+
+<a id="chromium-sigtrap"></a>
+
+## 问题 13：proot 下新版 Chromium（rev1246+）一启动就崩（SIGTRAP / exit 133）
+
+**现象**（2026-09-23，@bingfengcxl-crypto 在 Operit + proot Ubuntu24 aarch64 上报告）：
+
+- `chrome --version` 能正常打印，但**一旦真启动**（`--headless` 打开页面 / Playwright 驱动）立刻挂掉；
+- 直接跑：`Trace/breakpoint trap`，**exit code 133（SIGTRAP）**；
+- Playwright 侧报：`browser.newPage: Target page, context or browser has been closed`；
+- verbose 日志里 GPU 进程反复崩溃：`GPU process exited unexpectedly: exit_code=5`。
+
+```bash
+# 复现（新版 154.x / rev1246）
+./chrome --headless --no-sandbox --disable-gpu --dump-dom 'data:text/html,<h1>x</h1>'
+# → Trace/breakpoint trap（exit 133）
+```
+
+**根因**：新版 Chrome for Testing（154.0.8037.0 / rev1246）在 proot 下的 GPU 与沙箱探测路径不受支持。
+据报告者实测（2026-09-23），以下常见 flag **都救不回来**：`--single-process`、`--no-zygote`、`--disable-dev-shm-usage`、
+`--disable-gpu`、`GLIBC_TUNABLES=glibc.pthread.rseq=0`。
+
+**修复：用 chromium-1237，不要用新版**（约 195 MB，npmmirror 镜像与官方源字节一致）：
+
+```bash
+curl -L -o chromium-1237.zip \
+  "https://cdn.npmmirror.com/binaries/playwright/builds/chromium/1237/chromium-linux-arm64.zip"
+# 204,922,677 字节
+# ⚠️ 这个 zip 的第一层直接就是 chrome-linux/，没有 chromium-1237/ 顶层目录，
+#   所以要自己先建好目录再解压（2026-09-23 实测确认）
+mkdir -p ~/.cache/ms-playwright/chromium-1237
+unzip -q chromium-1237.zip -d ~/.cache/ms-playwright/chromium-1237
+ls ~/.cache/ms-playwright/chromium-1237/chrome-linux/chrome
+```
+
+最保险是在插件 `env` 里直接指死（跳过一切自动探测）：
+
+```json
+{
+  "PLAYWRIGHT_CHROME_BIN": "/root/.cache/ms-playwright/chromium-1237/chrome-linux/chrome"
+}
+```
+
+> ✅ **v1.0.7 起**：转发器内置偏好 —— 本机同时存在多个 build 时**优先选 1237**
+> （`PW_MCP_PREFERRED_BUILD`，默认 `1237`；设 `0` 关闭偏好）。
+
+**验证**：
+
+```bash
+./chrome --headless --no-sandbox --disable-gpu --dump-dom 'data:text/html,<h1>hi1237</h1>'
+# → exit 0，输出 <html><head></head><body><h1>hi1237</h1></body></html>
+```
+
 ```

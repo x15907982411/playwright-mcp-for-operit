@@ -74,12 +74,12 @@
 ### 方式一：一键脚本（最推荐）
 **A. 从 Release 下载完整包（国内推荐，无需访问 raw.githubusercontent.com）**
 
-1. 打开 [Releases](https://github.com/x15907982411/playwright-mcp-for-operit/releases/latest)，下载 `playwright-mcp-for-operit-v1.0.6.zip`
+1. 打开 [Releases](https://github.com/x15907982411/playwright-mcp-for-operit/releases/latest)，下载 `playwright-mcp-for-operit-v1.0.7.zip`
 2. 解压后进入目录执行：
 
 ```bash
-unzip playwright-mcp-for-operit-v1.0.6.zip
-cd playwright-mcp-for-operit-v1.0.6
+unzip playwright-mcp-for-operit-v1.0.7.zip
+cd playwright-mcp-for-operit-v1.0.7
 bash install.sh            # 自动完成：环境检查 → 依赖安装 → Chromium 探测 → 配置生成 → 双路径部署 → venv
 ```
 
@@ -138,6 +138,7 @@ bash install.sh --help         # 显示完整帮助
 > 💡 若首次启动因下载超时失败，**再重启一次 MCP 即可**（包与浏览器已就位）。
 >
 > 💡 可用 `PW_MCP_AUTO_INSTALL=0` / `PW_MCP_AUTO_DOWNLOAD=0` 关闭自动行为（在 `mcpServers.playwright_mcp.env` 里设）。
+> 💡 本机存在多个 chromium build 时，可用 `PW_MCP_PREFERRED_BUILD`（默认 `1237`）指定优先版本；详见 [TROUBLESHOOTING 问题 13](docs/TROUBLESHOOTING.md#chromium-sigtrap)。
 
 ## 使用示例
 

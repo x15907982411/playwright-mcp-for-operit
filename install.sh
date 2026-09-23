@@ -172,8 +172,8 @@ CHROME_BIN="$(find_chrome || true)"
 if [ -n "$CHROME_BIN" ]; then
   CHROME_BUILD="$(printf '%s' "$CHROME_BIN" | sed -n 's|.*chromium-\([0-9][0-9]*\).*|\1|p' | head -1 || true)"
   log "    ✅ 复用已有 Chromium：$CHROME_BIN（build=${CHROME_BUILD:-未知}）"
-  if [ -n "$CHROME_BUILD" ] && [ "$CHROME_BUILD" -lt 1243 ] 2>/dev/null; then
-    warn "build=${CHROME_BUILD} 低于官方期望 1243；跨 build 复用实测兼容，若异常请删除后重跑"
+  if [ -n "$CHROME_BUILD" ] && [ "$CHROME_BUILD" -lt 1237 ] 2>/dev/null; then
+    warn "build=${CHROME_BUILD} 低于期望下限 1237；1237 在旧/新驱动下实测完全兼容，保持现状即可"
   fi
   MISSING="$( (ldd "$CHROME_BIN" 2>/dev/null || true) | grep 'not found' 2>/dev/null | awk '{print $1}' | sort -u | head -5 | tr '\n' ' ' || true)"
   if [ -n "$MISSING" ]; then

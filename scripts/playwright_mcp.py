@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright MCP for Operit —— 自举转发器 (v1.0.6)
+Playwright MCP for Operit —— 自举转发器 (v1.0.7)
 
 设计目标：无论从 Operit 市场（自动 npm install）还是手动解压安装，
 首次启动都能自己把依赖补齐，做到真正的「装完即用」。
@@ -14,15 +14,17 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.6)
        ③ 都没有 → 自动 npm i（本地优先，失败回退全局）
   3. 定位 Chromium（headless）：
        ① PLAYWRIGHT_CHROME_BIN 环境变量
-       ② ~/.cache/ms-playwright 与 /root/.cache/ms-playwright（多路径 + 非空 + build 校验）
-       ③ 都没有 → 自动下载（node cli.js install chromium）
+       ② ~/.cache/ms-playwright 与 /root/.cache/ms-playwright（多路径 + 非空 + build 校验；多个 build 并存时优先 PW_MCP_PREFERRED_BUILD，默认 1237）
+       ③ 都没有 → 自动下载（node cli.js install-browser chromium）
   4. exec 到 node cli.js --headless --no-sandbox --executable-path <chrome>
 
 环境变量（均可选）：
   NODE_BIN                 指定 node 可执行文件
   PLAYWRIGHT_CHROME_BIN    指定 Chromium 可执行文件
   PW_MCP_VER               MCP 版本，默认 0.0.82
-  PW_MCP_MIN_BUILD         期望的 chromium build，默认 1243（低于此值仅告警不报错）
+  PW_MCP_MIN_BUILD         期望的 chromium build 下限，默认 1237（低于此值仅告警不报错）
+  PW_MCP_PREFERRED_BUILD   多个 build 并存时优先选用，默认 1237；设 0 关闭偏好
+                           （proot 下 rev1246+ 启动即 SIGTRAP，见 docs/TROUBLESHOOTING.md 问题 13）
   PW_MCP_AUTO_INSTALL      0 = 不自动安装 MCP 包
   PW_MCP_AUTO_DOWNLOAD     0 = 不自动下载 Chromium
   PW_MCP_NPM_REGISTRY      指定 npm registry（例如国内镜像）
@@ -58,7 +60,11 @@ def _int_env(name: str, default: int) -> int:
 
 MCP_PKG = "@playwright/mcp"
 MCP_VER = os.environ.get("PW_MCP_VER", "0.0.82")
-MIN_CHROMIUM_BUILD = _int_env("PW_MCP_MIN_BUILD", 1243)
+MIN_CHROMIUM_BUILD = _int_env("PW_MCP_MIN_BUILD", 1237)
+# 已知可用 build：proot 环境下 rev1246+（CFT 154.x）启动即 SIGTRAP，
+# 而 1237 在旧/新驱动下均实测完全兼容。多个 build 并存时优先选它，
+# 避免「选最新」反而选到会崩的版本。设 PW_MCP_PREFERRED_BUILD=0 关闭偏好。
+PREFERRED_BUILD = _int_env("PW_MCP_PREFERRED_BUILD", 1237)
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, "bootstrap.log")
 
@@ -240,7 +246,7 @@ def install_mcp(node: str) -> str | None:
 
 
 def _chrome_build(path: str) -> int:
-    """从路径中提取 chromium build 号（如 chromium-1243），失败返回 0。"""
+    """从路径中提取 chromium build 号（如 chromium-1237），失败返回 0。"""
     parts = path.replace("\\", "/").split("/")
     for part in parts:
         if part.startswith("chromium-"):
@@ -255,6 +261,7 @@ def find_chrome() -> str | None:
     if env_bin and os.path.isfile(env_bin) and os.path.getsize(env_bin) > 1024 * 1024:
         return env_bin
 
+    pref = PREFERRED_BUILD
     best: tuple[int, str] | None = None
     bases = [
         os.path.expanduser("~/.cache/ms-playwright"),
@@ -277,6 +284,9 @@ def find_chrome() -> str | None:
                 except OSError:
                     continue
                 build = _chrome_build(full)
+                if pref and build == pref:
+                    # 命中已知可用 build：直接采用（最稳，且不会选到会崩的新版）
+                    return full
                 if best is None or build > best[0]:
                     best = (build, full)
             dirnames[:] = []  # 命中目录后不再深入
@@ -292,7 +302,10 @@ def download_chrome(node: str, cli: str) -> str | None:
     if host:
         env["PLAYWRIGHT_DOWNLOAD_HOST"] = host
     try:
-        proc = run([node, cli, "install", "chromium"], timeout=1800, env=env)
+        # install-browser 才是 @playwright/mcp 0.0.82 的浏览器安装入口
+        # （cli.js 内部再映射为下游的 install）；直接传 "install chromium"
+        # 会被顶层解析器拒绝：too many arguments. Expected 0 arguments but got 2
+        proc = run([node, cli, "install-browser", "chromium"], timeout=1800, env=env)
         tail = (proc.stdout or "")[-800:]
         if proc.returncode != 0:
             log(f"Chromium 下载失败（exit={proc.returncode}）：{tail}", "WARN")
@@ -330,23 +343,36 @@ def main() -> None:
         log(f"MCP CLI = {cli}（来源：{source}）")
 
     chrome = find_chrome()
+    downloaded_build = 0
     if chrome:
         build = _chrome_build(chrome)
         log(f"Chromium = {chrome}（build={build or '未知'}）")
         if build and build < MIN_CHROMIUM_BUILD:
             log(
-                f"本机 Chromium build={build} 低于官方期望 {MIN_CHROMIUM_BUILD}，"
-                "跨 build 实测兼容，若异常请执行: node <cli.js> install chromium",
+                f"本机 Chromium build={build} 低于期望下限 {MIN_CHROMIUM_BUILD}；"
+                "跨 build 实测通常兼容，可先观察"
+                "（若启动异常，优先换用已知可用的 1237，见 docs/TROUBLESHOOTING.md 问题 13）",
                 "WARN",
             )
     else:
         chrome = download_chrome(node, cli)
+        downloaded_build = _chrome_build(chrome) if chrome else 0
         if not chrome:
             die(
                 "未找到且无法自动下载 Chromium",
-                "可手动执行：node <MCP cli.js> install chromium；"
-                "或设置 PLAYWRIGHT_CHROME_BIN 指向已有的 chrome 可执行文件",
+                "可手动执行：node <MCP cli.js> install-browser chromium；"
+                "或设置 PLAYWRIGHT_CHROME_BIN 指向已有的 chrome 可执行文件"
+                "（注意：proot 下新版 Chromium 会 SIGTRAP，推荐 chromium-1237，"
+                "见 docs/TROUBLESHOOTING.md 问题 13）",
             )
+
+    if downloaded_build and PREFERRED_BUILD and downloaded_build != PREFERRED_BUILD:
+        log(
+            f"注意：自动下载得到的是 build={downloaded_build}（本机没有已知可用的 "
+            f"{PREFERRED_BUILD}）；若出现「启动即崩 / SIGTRAP」，见 "
+            "docs/TROUBLESHOOTING.md 问题 13（回退 chromium-1237）",
+            "WARN",
+        )
 
     args = [node, cli, "--headless", "--no-sandbox", "--executable-path", chrome]
     extra = os.environ.get("PW_MCP_EXTRA_ARGS", "").split()

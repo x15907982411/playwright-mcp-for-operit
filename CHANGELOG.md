@@ -2,6 +2,25 @@
 
 本插件遵循 [语义化版本](https://semver.org/lang/zh-CN/)，但请注意：**插件自身版本与上游 `@playwright/mcp` 版本是两条独立的版本线**。
 
+## [1.0.7] - 2026-09-23
+
+### 🐛 修复（来自社区反馈）
+- **「自动下载 Chromium」必然失败**：`install chromium` → **`install-browser chromium`**。
+  `@playwright/mcp@0.0.82` 的 cli.js 只把 `install-browser` 映射给下游 Playwright，
+  直接传 `install chromium` 会被顶层解析器拒掉（`too many arguments: install, chromium`）。
+  受影响共 5 处：转发器下载调用、docstring、两处提示文本、DEPLOY 表格。
+  ※ 本机已有 Chromium 的环境永远不会走到这条路径，属长期潜伏 bug —— 感谢 @bingfengcxl-crypto 报告（#4）
+
+### 🛡️ 兼容性
+- 新增排障条目 [问题 13](docs/TROUBLESHOOTING.md)：**proot 下新版 Chromium（rev1246+）启动即 SIGTRAP**
+  （exit 133 / GPU process exit_code=5），并给出 chromium-1237 的回退与下载命令 —— 感谢 @bingfengcxl-crypto 报告（#5）
+- 转发器新增 **`PW_MCP_PREFERRED_BUILD`**（默认 `1237`）：本机存在多个 build 时优先选已知可用版本，
+  不再「选最新」（新版在 proot 下会崩）
+- `PW_MCP_MIN_BUILD` 默认值 **1243 → 1237**（原值会让 1237 白刷一条 WARN；`install.sh` 同步）
+
+### 📄 文档
+- DEPLOY：Chromium 行补 `install-browser` 与 build 偏好说明；环境变量表补 `PW_MCP_PREFERRED_BUILD`
+
 ## [1.0.6] - 2026-09-19
 
 ### ⬆️ 上游跟进

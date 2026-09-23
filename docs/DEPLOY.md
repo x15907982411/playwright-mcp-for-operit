@@ -145,7 +145,7 @@ python3 -m venv venv
 |---|---|---|
 | 1 | `node` | 报错并提示安装方式（可用 `NODE_BIN` 指定） |
 | 2 | MCP 包：插件内 `node_modules` → 全局 `node_modules` | 都没有 → 自动 `npm install`（本地优先，回退全局） |
-| 3 | Chromium：`PLAYWRIGHT_CHROME_BIN` → `~/.cache/ms-playwright`（含 `/root` 与 `PLAYWRIGHT_BROWSERS_PATH`） | 都没有 → 自动 `install chromium`（约 150MB） |
+| 3 | Chromium：`PLAYWRIGHT_CHROME_BIN` → `~/.cache/ms-playwright`（含 `/root` 与 `PLAYWRIGHT_BROWSERS_PATH`；多个 build 并存时优先 `PW_MCP_PREFERRED_BUILD`＝1237） | 都没有 → 自动 `install-browser chromium`（约 150MB） |
 | 4 | 启动 | `exec` 到 `node cli.js --headless --no-sandbox --executable-path <chrome>` |
 
 环境变量（写在 `mcpServers.playwright_mcp.env` 或系统环境中）：
@@ -155,7 +155,8 @@ python3 -m venv venv
 | `NODE_BIN` | 自动 | 指定 node 可执行文件 |
 | `PLAYWRIGHT_CHROME_BIN` | 自动 | 指定 Chromium 可执行文件 |
 | `PW_MCP_VER` | `0.0.82` | 自动安装时的版本 |
-| `PW_MCP_MIN_BUILD` | `1243` | 低于此 build 仅告警 |
+| `PW_MCP_MIN_BUILD` | `1237` | 低于此 build 仅告警 |
+| `PW_MCP_PREFERRED_BUILD` | `1237` | 多个 build 并存时优先选用（设 `0` 关闭）；proot 下新版 1246+ 会崩，保持 1237 最稳 |
 | `PW_MCP_AUTO_INSTALL` | `1` | `0` = 不自动安装 MCP 包 |
 | `PW_MCP_AUTO_DOWNLOAD` | `1` | `0` = 不自动下载 Chromium |
 | `PW_MCP_NPM_REGISTRY` | `https://registry.npmjs.org` | npm 源。**默认官方源**（0.0.82 的 alpha 依赖镜像可能未同步，用镜像会报 ETARGET）；如需镜像自行指定 |
