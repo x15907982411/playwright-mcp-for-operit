@@ -27,6 +27,9 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.7)
                            （proot 下 rev1246+ 启动即 SIGTRAP，见 docs/TROUBLESHOOTING.md 问题 13）
   PW_MCP_AUTO_INSTALL      0 = 不自动安装 MCP 包
   PW_MCP_AUTO_DOWNLOAD     0 = 不自动下载 Chromium
+  PW_MCP_LOG_MAX           日志轮转阈值（字节），默认 1048576（1MB），超限转 bootstrap.log.1
+  PLAYWRIGHT_BROWSERS_PATH 额外的浏览器搜索目录（Playwright 标准变量）
+  PLAYWRIGHT_DOWNLOAD_HOST 浏览器下载源（Playwright 标准变量；国内可换镜像）
   PW_MCP_NPM_REGISTRY      指定 npm registry（例如国内镜像）
   PW_MCP_EXTRA_ARGS        追加给 MCP server 的参数，空格分隔
 

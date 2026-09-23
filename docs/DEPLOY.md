@@ -161,6 +161,9 @@ python3 -m venv venv
 | `PW_MCP_AUTO_DOWNLOAD` | `1` | `0` = 不自动下载 Chromium |
 | `PW_MCP_NPM_REGISTRY` | `https://registry.npmjs.org` | npm 源。**默认官方源**（0.0.82 的 alpha 依赖镜像可能未同步，用镜像会报 ETARGET）；如需镜像自行指定 |
 | `PW_MCP_EXTRA_ARGS` | 空 | 追加给 MCP server 的启动参数（空格分隔） |
+| `PW_MCP_LOG_MAX` | `1048576` | 日志轮转阈值（字节），超限转 `bootstrap.log.1` |
+| `PLAYWRIGHT_BROWSERS_PATH` | 自动 | 额外的浏览器搜索目录（Playwright 标准变量） |
+| `PLAYWRIGHT_DOWNLOAD_HOST` | 官方 CDN | 浏览器下载源（Playwright 标准变量；国内可换镜像） |
 
 诊断日志：`~/mcp_plugins/playwright_mcp/bootstrap.log`（同时输出到 stderr，Operit 日志可见）。
 

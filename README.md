@@ -1,6 +1,6 @@
 # Playwright MCP for Operit
 
-[![version](https://img.shields.io/badge/version-1.0.6-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
+[![version](https://img.shields.io/badge/version-1.0.7-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%20%2B%20proot%20arm64-blueviolet?style=flat-square)](#环境要求)
 [![tools](https://img.shields.io/badge/browser__tools-25-orange?style=flat-square)](#它能做什么)
