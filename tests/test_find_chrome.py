@@ -28,7 +28,7 @@ FORWARDER = os.path.join(REPO_ROOT, "scripts", "playwright_mcp.py")
 # 与转发器 import 期可能读取的键保持同步；未备份的键会污染进程环境。
 # 注：HOME 也在受管键内 —— setUp 会将其清空；若将来新增依赖 HOME 的用例，
 #     请在 _find_chrome(HOME=...) 里显式传入（当前用例经 PLAYWRIGHT_BROWSERS_PATH 绕过）。
-ENV_KEYS = ("PW_MCP_PREFERRED_BUILD", "PW_MCP_MIN_BUILD", "PW_MCP_LOG_MAX",
+ENV_KEYS = ("PW_MCP_PREFERRED_BUILD", "PW_MCP_MIN_BUILD", "PW_MCP_KNOWN_BAD_MIN", "PW_MCP_LOG_MAX",
             "PW_MCP_SKIP_INSTALL", "PW_MCP_AUTO_DOWNLOAD", "PW_MCP_AUTO_INSTALL",
             "PW_MCP_EXTRA_ARGS", "PW_MCP_NPM_REGISTRY", "PW_MCP_VER",
             "NODE_BIN", "PLAYWRIGHT_BROWSERS_PATH", "PLAYWRIGHT_CHROME_BIN",

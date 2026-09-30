@@ -41,8 +41,8 @@
 set -eu
 
 MCP_ID="playwright_mcp"
-MCP_VER="0.0.82"          # 上游 @playwright/mcp 版本
-PLUGIN_VER="1.0.6"       # 本插件自身的版本（写入 pluginMetadata.version）
+MCP_VER="0.0.83"          # 上游 @playwright/mcp 版本
+PLUGIN_VER="1.0.8"       # 本插件自身的版本（写入 pluginMetadata.version）
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
@@ -76,7 +76,7 @@ log()  { echo "$*"; }
 warn() { echo "⚠️  $*" >&2; }
 step() { echo; echo "==> $*"; }
 
-# 默认使用官方源：0.0.82 依赖 playwright-core@1.64.0-alpha-*（alpha 版本），
+# 默认使用官方源：0.0.83 依赖 playwright-core@1.64.0-alpha-*（alpha 版本），
 # 国内镜像 registry.npmmirror.com 可能尚未同步 → 会报 ETARGET。
 # 如需镜像，显式设置 PW_MCP_NPM_REGISTRY=https://registry.npmmirror.com
 NPM_REG_ARGS=(--registry "${PW_MCP_NPM_REGISTRY:-https://registry.npmjs.org}")
@@ -328,7 +328,7 @@ elif [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
       log "    ✅ 依赖已安装（启动时无需再下载）"
     else
       warn "npm install 失败，将由转发器首次启动时重试"
-      warn "   注意: 0.0.82 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
+      warn "   注意: 0.0.83 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
       tail -5 /tmp/pw_npm.log 2>/dev/null || true
     fi
   fi

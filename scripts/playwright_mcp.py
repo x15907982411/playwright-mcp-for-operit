@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright MCP for Operit —— 自举转发器 (v1.0.7)
+Playwright MCP for Operit —— 自举转发器 (v1.0.8)
 
 设计目标：无论从 Operit 市场（自动 npm install）还是手动解压安装，
 首次启动都能自己把依赖补齐，做到真正的「装完即用」。
@@ -21,10 +21,11 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.7)
 环境变量（均可选）：
   NODE_BIN                 指定 node 可执行文件
   PLAYWRIGHT_CHROME_BIN    指定 Chromium 可执行文件
-  PW_MCP_VER               MCP 版本，默认 0.0.82
+  PW_MCP_VER               MCP 版本，默认 0.0.83
   PW_MCP_MIN_BUILD         期望的 chromium build 下限，默认 1237（低于此值仅告警不报错）
   PW_MCP_PREFERRED_BUILD   多个 build 并存时优先选用，默认 1237；设 0 关闭偏好
                            （proot 下 rev1246+ 启动即 SIGTRAP，见 docs/TROUBLESHOOTING.md 问题 13）
+  PW_MCP_KNOWN_BAD_MIN     已知坏 build 下限，默认 1246（选中 build >= 此值且 != 1237 时拒绝启动）
   PW_MCP_AUTO_INSTALL      0 = 不自动安装 MCP 包
   PW_MCP_AUTO_DOWNLOAD     0 = 不自动下载 Chromium
   PW_MCP_LOG_MAX           日志轮转阈值（字节），默认 1048576（1MB），超限转 bootstrap.log.1
@@ -62,12 +63,16 @@ def _int_env(name: str, default: int) -> int:
 
 
 MCP_PKG = "@playwright/mcp"
-MCP_VER = os.environ.get("PW_MCP_VER", "0.0.82")
+MCP_VER = os.environ.get("PW_MCP_VER", "0.0.83")
 MIN_CHROMIUM_BUILD = _int_env("PW_MCP_MIN_BUILD", 1237)
 # 已知可用 build：proot 环境下 rev1246+（CFT 154.x）启动即 SIGTRAP，
 # 而 1237 在旧/新驱动下均实测完全兼容。多个 build 并存时优先选它，
 # 避免「选最新」反而选到会崩的版本。设 PW_MCP_PREFERRED_BUILD=0 关闭偏好。
 PREFERRED_BUILD = _int_env("PW_MCP_PREFERRED_BUILD", 1237)
+# 已知坏 build 下限：proot 环境下 rev1246+（CFT 154.x）启动即 SIGTRAP。
+# 最终选中的 build 若 >= 此值且 != 1237，将直接拒绝启动（外审#1）。
+KNOWN_BAD_BUILD_MIN = _int_env("PW_MCP_KNOWN_BAD_MIN", 1246)
+KNOWN_GOOD_BUILD = 1237
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_PATH = os.path.join(HERE, "bootstrap.log")
 
@@ -171,17 +176,41 @@ def run(cmd: list[str], timeout: int = 900, env: dict | None = None,
 
 
 def npm_registry_args() -> list[str]:
-    # 默认用官方源：0.0.82 依赖 playwright-core@1.64.0-alpha-*（alpha），
+    # 默认用官方源：0.0.83 依赖 playwright-core@1.64.0-alpha-*（alpha），
     # 国内镜像 npmmirror 可能未同步 -> ETARGET。如需镜像，设 PW_MCP_NPM_REGISTRY。
     registry = os.environ.get("PW_MCP_NPM_REGISTRY") or "https://registry.npmjs.org"
     return ["--registry", registry]
 
 
+def _pkg_version(cli_path: str) -> str | None:
+    """读取 @playwright/mcp 包的 package.json 版本（cli.js 同目录），失败返回 None。"""
+    import json as _json
+    pkg = os.path.join(os.path.dirname(cli_path), "package.json")
+    try:
+        with open(pkg, encoding="utf-8") as fh:
+            return _json.load(fh).get("version")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _cli_usable(cli_path: str) -> bool:
+    """cli.js 最低可用性：文件大小 > 1KB（防“包目录残缺/损坏”被当可用，外审v4#3）。"""
+    try:
+        return os.path.getsize(cli_path) > 1024
+    except OSError:
+        return False
+
+
 def find_mcp_cli(node: str) -> tuple[str | None, str]:
-    """返回 (cli.js 路径, 来源描述)。检查顺序：插件内 → 全局。"""
+    """返回 (cli.js 路径, 来源描述)。检查顺序：插件内 → 全局。
+    仅接受版本与 MCP_VER 一致的候选（外审#2：本地旧版/版本不符不再盲用）。
+    （注：node 参数当前未使用，保留以兼容既有调用签名/未来扩展。）"""
     local = os.path.join(HERE, "node_modules", MCP_PKG, "cli.js")
-    if os.path.isfile(local):
-        return local, "插件本地 node_modules"
+    if os.path.isfile(local) and _cli_usable(local):
+        v = _pkg_version(local)
+        if v == MCP_VER:
+            return local, "插件本地 node_modules"
+        log(f"本地 {MCP_PKG} 版本={v or '未知'}，与期望 {MCP_VER} 不符，将尝试校准安装", "WARN")
 
     roots: list[str] = []
     try:
@@ -199,9 +228,12 @@ def find_mcp_cli(node: str) -> tuple[str | None, str]:
         if not root:
             continue
         cand = os.path.join(root, MCP_PKG, "cli.js")
-        if os.path.isfile(cand):
-            return cand, f"全局 node_modules（{root}）"
-    return None, "未找到"
+        if os.path.isfile(cand) and _cli_usable(cand):
+            v = _pkg_version(cand)
+            if v == MCP_VER:
+                return cand, f"全局 node_modules（{root}）"
+            log(f"全局 {cand} 版本={v or '未知'}，与期望 {MCP_VER} 不符，跳过", "WARN")
+    return None, "未找到（或版本不符）"
 
 
 def install_mcp(node: str) -> str | None:
@@ -225,8 +257,13 @@ def install_mcp(node: str) -> str | None:
         if proc.returncode == 0:
             cli = os.path.join(HERE, "node_modules", MCP_PKG, "cli.js")
             if os.path.isfile(cli):
-                log(f"本地安装成功：{cli}")
-                return cli
+                v_after = _pkg_version(cli)
+                if v_after == MCP_VER:
+                    log(f"本地安装成功：{cli}")
+                    return cli
+                log(f"本地安装后版本={v_after or '未知'}，与期望 {MCP_VER} 不符，转全局回退", "WARN")
+            else:
+                log("本地安装返回 0 但未找到 cli.js，转全局回退", "WARN")
         else:
             log(f"本地安装失败（exit={proc.returncode}）：{(proc.stdout or '')[-500:]}", "WARN")
     except Exception as exc:  # noqa: BLE001
@@ -241,6 +278,7 @@ def install_mcp(node: str) -> str | None:
             if cli:
                 log(f"全局安装成功：{cli}（{src}）")
                 return cli
+            log("全局安装返回 0 但未找到匹配版本的 cli.js", "WARN")
         else:
             log(f"全局安装失败（exit={proc.returncode}）：{(proc.stdout or '')[-500:]}", "WARN")
     except Exception as exc:  # noqa: BLE001
@@ -305,7 +343,7 @@ def download_chrome(node: str, cli: str) -> str | None:
     if host:
         env["PLAYWRIGHT_DOWNLOAD_HOST"] = host
     try:
-        # install-browser 才是 @playwright/mcp 0.0.82 的浏览器安装入口
+        # install-browser 才是 @playwright/mcp 0.0.83 的浏览器安装入口
         # （cli.js 内部再映射为下游的 install）；直接传 "install chromium"
         # 会被顶层解析器拒绝：too many arguments. Expected 0 arguments but got 2
         proc = run([node, cli, "install-browser", "chromium"], timeout=1800, env=env)
@@ -336,14 +374,21 @@ def main() -> None:
     cli, source = find_mcp_cli(node)
     if not cli:
         cli = install_mcp(node)
+        if cli:
+            source = "自动安装（本地/全局）"
         if not cli:
-            die(
-                f"未找到且无法自动安装 {MCP_PKG}@{MCP_VER}",
-                "手动安装：npm i -g @playwright/mcp@0.0.82 --registry https://registry.npmjs.org（alpha 依赖需官方源，国内镜像可能报 ETARGET）；"
-                "或设置 PW_MCP_AUTO_INSTALL=0 禁用自动安装后自行准备",
-            )
-    else:
-        log(f"MCP CLI = {cli}（来源：{source}）")
+            # 保底（外审#2）：校准失败时，若本地仍有可用 cli.js 则降级使用并明确告警
+            fallback = os.path.join(HERE, "node_modules", MCP_PKG, "cli.js")
+            if os.path.isfile(fallback):
+                log(f"校准安装失败，回退使用现有本地版本（{_pkg_version(fallback) or '未知'}），与期望 {MCP_VER} 不一致，可能有兼容风险", "WARN")
+                cli, source = fallback, "本地（版本不符·保底）"
+            else:
+                die(
+                    f"未找到且无法自动安装 {MCP_PKG}@{MCP_VER}",
+                    f"手动安装：npm i -g {MCP_PKG}@{MCP_VER} --registry https://registry.npmjs.org（alpha 依赖需官方源，国内镜像可能报 ETARGET）；"
+                    "或设置 PW_MCP_AUTO_INSTALL=0 禁用自动安装后自行准备",
+                )
+    log(f"MCP CLI = {cli}（来源：{source}）")
 
     chrome = find_chrome()
     downloaded_build = 0
@@ -369,6 +414,26 @@ def main() -> None:
                 "见 docs/TROUBLESHOOTING.md 问题 13）",
             )
 
+    # 已知坏 build 拦截（外审#1）：proot 下 rev>=1246 启动即 SIGTRAP，拒绝静默启动
+    final_build = _chrome_build(chrome) if chrome else 0
+    if not final_build and chrome and os.environ.get("PLAYWRIGHT_CHROME_BIN"):
+        # 路径无法解析 build（重命名/符号链接/自定义目录）：尽力校验并告警（外审v2#1）
+        try:
+            _proc = run([chrome, "--version"], timeout=30)
+            _vtxt = (_proc.stdout or "").strip()[:120]
+        except Exception:  # noqa: BLE001
+            _vtxt = ""
+        log(
+            f"无法从路径解析 Chromium build；chrome --version = {_vtxt or '未知'}。"
+            "若该浏览器为 CFT 154.x（rev>=1246），proot 下可能 SIGTRAP；建议改设 PLAYWRIGHT_CHROME_BIN 指向 chromium-1237！",
+            "WARN",
+        )
+    if final_build and final_build >= KNOWN_BAD_BUILD_MIN and final_build != KNOWN_GOOD_BUILD:
+        die(
+            f"检测到 Chromium build={final_build}（proot 下 rev>={KNOWN_BAD_BUILD_MIN} 启动即 SIGTRAP），已拒绝启动",
+            f"请安装已知可用的 chromium-{KNOWN_GOOD_BUILD}，或设置 PLAYWRIGHT_CHROME_BIN 指向兼容浏览器；"
+            "详见 docs/TROUBLESHOOTING.md 问题 13",
+        )
     if downloaded_build and PREFERRED_BUILD and downloaded_build != PREFERRED_BUILD:
         log(
             f"注意：自动下载得到的是 build={downloaded_build}（本机没有已知可用的 "

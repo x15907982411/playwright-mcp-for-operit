@@ -1,16 +1,16 @@
 # Playwright MCP for Operit
 
-[![version](https://img.shields.io/badge/version-1.0.7-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
+[![version](https://img.shields.io/badge/version-1.0.8-4A90D9?style=flat-square)](https://github.com/x15907982411/playwright-mcp-for-operit)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Android%20%2B%20proot%20arm64-blueviolet?style=flat-square)](#环境要求)
 [![tools](https://img.shields.io/badge/browser__tools-25-orange?style=flat-square)](#它能做什么)
-[![upstream](https://img.shields.io/badge/upstream-%40playwright%2Fmcp%400.0.82-black?style=flat-square)](https://github.com/microsoft/playwright-mcp)
+[![upstream](https://img.shields.io/badge/upstream-%40playwright%2Fmcp%400.0.83-black?style=flat-square)](https://github.com/microsoft/playwright-mcp)
 
 > **为 Operit 装上真正的浏览器。**
 >
 > 让你的 AI 助手自己打开网页、阅读内容、搜索填表、截图取证——一切自动化，全程可观测。
 
-本项目将微软官方的 [Playwright MCP](https://github.com/microsoft/playwright-mcp)（v0.0.82）接入 [Operit](https://github.com/AAswordman/Operit)（Android 上的 AI 助手）。基于 Chromium 内核，在手机上获得与桌面浏览器一致的渲染与交互能力。
+本项目将微软官方的 [Playwright MCP](https://github.com/microsoft/playwright-mcp)（v0.0.83）接入 [Operit](https://github.com/AAswordman/Operit)（Android 上的 AI 助手）。基于 Chromium 内核，在手机上获得与桌面浏览器一致的渲染与交互能力。
 
 ---
 
@@ -41,7 +41,7 @@
 
 ## 它能做什么
 
-**25 个 `browser_*` 工具**，覆盖「打开 → 操作 → 取证」完整链路，工具面与官方 Playwright MCP v0.0.82 完全一致。
+**25 个 `browser_*` 工具**，覆盖「打开 → 操作 → 取证」完整链路，工具面与官方 Playwright MCP v0.0.83 完全一致。
 
 > v1.0.6 起新增 `browser_emulate_media`（模拟媒体类型/打印/深浅色）；另有 `browser_run_code_unsafe`（执行任意代码）——**该工具能力极强，仅在确认页面可信时使用**。
 
@@ -74,12 +74,12 @@
 ### 方式一：一键脚本（最推荐）
 **A. 从 Release 下载完整包（国内推荐，无需访问 raw.githubusercontent.com）**
 
-1. 打开 [Releases](https://github.com/x15907982411/playwright-mcp-for-operit/releases/latest)，下载 `playwright-mcp-for-operit-v1.0.7.zip`
+1. 打开 [Releases](https://github.com/x15907982411/playwright-mcp-for-operit/releases/latest)，下载 `playwright-mcp-for-operit-v1.0.8.zip`
 2. 解压后进入目录执行：
 
 ```bash
-unzip playwright-mcp-for-operit-v1.0.7.zip
-cd playwright-mcp-for-operit-v1.0.7
+unzip playwright-mcp-for-operit-v1.0.8.zip
+cd playwright-mcp-for-operit-v1.0.8
 bash install.sh            # 自动完成：环境检查 → 依赖安装 → Chromium 探测 → 配置生成 → 双路径部署 → venv
 ```
 
@@ -109,7 +109,7 @@ bash install.sh --help         # 显示完整帮助
 >
 > 💡 **推荐在 proot 环境执行**：Termux 与 proot 的 `~/.cache` 不互通，双环境切换会重复下载 Chromium。
 >
-> ⚠️ **npm 源提示**：`@playwright/mcp@0.0.82` 依赖的 `playwright-core@1.64.0-alpha-*` 为 alpha 版本，
+> ⚠️ **npm 源提示**：`@playwright/mcp@0.0.83` 依赖的 `playwright-core@1.64.0-alpha-*` 为 alpha 版本，
 > 国内镜像 `registry.npmmirror.com` **可能尚未同步**；若 `npm install` 报 `ETARGET`，请用官方源：
 > `npm install --registry https://registry.npmjs.org`
 >
@@ -163,7 +163,7 @@ browser_take_screenshot()                     // 截图留证
 | **手机内存够吗？** | Chromium headless 约占 300–500MB，建议可用内存 ≥ 1GB（实测 8 核 + 1GB 环境运行流畅） |
 | **市场装完重启后第一次很慢 / 失败？** | 正常：首次启动要装 MCP 包 + 准备 Chromium（可能下载 150MB）。**再重启一次 MCP** 即可；进度与错误见 `bootstrap.log` |
 | **重启 MCP 报 Unknown error，但插件其实起来了？** | 已知现象：Operit 的重启工具有时会报错，但插件已成功加载。以 `ping_mcp` 能否列出 25 个工具为准 |
-| **`ping_mcp` 工具数对不对？** | 官方 `@playwright/mcp` **v0.0.82 实际是 25 个**。v1.0.0~v1.0.5 文档写「24」是**漏列了 `browser_emulate_media`**，v1.0.6 起已修正 |
+| **`ping_mcp` 工具数对不对？** | 官方 `@playwright/mcp` **v0.0.83 实际是 25 个**。v1.0.0~v1.0.5 文档写「24」是**漏列了 `browser_emulate_media`**，v1.0.6 起已修正 |
 | **插件加载不上 / 报 Unknown error？** | 多为 `pluginMetadata` 字段不完整（缺 `updatedAt` 会触发 Operit 空指针）。请用 v1.0.6 的 `install.sh` 或 `config/mcp_config.json`，**不要手写精简片段** |
 | **会被网站风控吗？** | 无头浏览器访问少数风控严格的站点（如百度搜索）可能触发验证码，属所有自动化方案的通病；可用真实 UA 或带登录态 cookie 缓解 |
 | **和 Operit 内置 browser 包有何区别？** | 内置包在部分设备有内核兼容问题（页面无法加载）；本方案基于官方 MCP server + 完整 Chromium，实测全链路可用，且多出网络抓包、console 日志等能力 |
@@ -186,12 +186,12 @@ browser_take_screenshot()                     // 截图留证
 
 ## 相关链接
 
-- 上游 MCP server：[microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)（v0.0.82，**Apache-2.0**）
+- 上游 MCP server：[microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)（v0.0.83，**Apache-2.0**）
 - 运行平台：[AAswordman/Operit](https://github.com/AAswordman/Operit)
 - 浏览器内核：Chromium（arm64 headless）
 
 ## License
 
 - **本项目**（部署脚本 / 配置模板 / 文档）：**MIT**，详见 [LICENSE](LICENSE)
-- **上游 MCP server**：[Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) 为 **Apache-2.0**，安装时通过 npm 获取（`@playwright/mcp@0.0.82`），版权归 Microsoft 所有。本仓库**不包含**上游源代码
+- **上游 MCP server**：[Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) 为 **Apache-2.0**，安装时通过 npm 获取（`@playwright/mcp@0.0.83`），版权归 Microsoft 所有。本仓库**不包含**上游源代码
 - **商标**：Playwright 是 Microsoft 的商标。本项目为独立社区适配项目，与 Microsoft 无隶属关系；项目名中引用「Playwright」仅用于描述兼容性

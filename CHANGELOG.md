@@ -2,6 +2,16 @@
 
 本插件遵循 [语义化版本](https://semver.org/lang/zh-CN/)，但请注意：**插件自身版本与上游 `@playwright/mcp` 版本是两条独立的版本线**。
 
+## [1.0.8] - 2026-09-30
+### ⬆️ 上游同步
+- 适配 `@playwright/mcp` **0.0.82 → 0.0.83**（上游 8 项 bugfix：`browser_find` 正则/文件名支持、navigate/reload 遇对话框报错、下载中关闭浏览器防崩、`wait_for` 超时明示、WebMCP 陈旧标签绑定、snapshot 正则名加引号等）
+- `playwright-core` 同步 `1.64.0-alpha-1790635538000`
+### 🔒 兼容性（决策保持不变）
+- 新增 `PW_MCP_KNOWN_BAD_MIN`（默认 1246）：最终选中的 Chromium build >= 此值（且 != 1237）时**拒绝启动**（防 proot SIGTRAP；自动下载路径同样拦截；`PW_MCP_PREFERRED_BUILD=0` 时依旧生效）
+- **Chromium build 偏好继续钉 1237**：上游 0.0.83 官方配套为 1247，但 proot 下 rev1246+ 启动即 SIGTRAP；1237 在旧/新驱动下均实测兼容，跨 build 复用策略不变（`PW_MCP_MIN_BUILD` / `PW_MCP_PREFERRED_BUILD` 保持 1237）
+### ✅ 本机验证
+- 全链路实测：npm 升级 → 重启 MCP → 25 工具在线 → navigate / snapshot / screenshot / wait_for / close 全通过
+
 ## [1.0.7] - 2026-09-23
 
 ### 🐛 修复（来自社区反馈）

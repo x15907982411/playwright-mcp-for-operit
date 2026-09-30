@@ -183,11 +183,11 @@ npx playwright install-deps chromium
 
 ## 问题 11：ping_mcp 显示 25 个工具（旧文档说 24）？
 
-**25 个是正确的**。官方 `@playwright/mcp` v0.0.82（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
+**25 个是正确的**。官方 `@playwright/mcp` v0.0.83（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
 
 `click` / `close` / `console_messages` / `drag` / `drop` / `evaluate` / `file_upload` / `fill_form` / `find` / `handle_dialog` / `hover` / `navigate` / `navigate_back` / `network_request` / `network_requests` / `press_key` / `resize` / `emulate_media` / `run_code_unsafe` / `select_option` / `snapshot` / `tabs` / `take_screenshot` / `type` / `wait_for`
 
-如果少于 25 个，请先确认版本确实是 **0.0.82**（v0.0.80 及更早为 24 个）：
+如果少于 25 个，请先确认版本确实是 **0.0.83**（v0.0.80 及更早为 24 个）：
 
 ```bash
 cat ~/mcp_plugins/playwright_mcp/bootstrap.log   # 会打印实际使用的 cli.js 路径
@@ -202,10 +202,10 @@ node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json
 
 ```
 npm error code ETARGET
-npm error notarget No matching version found for playwright-core@1.64.0-alpha-1789764292000.
+npm error notarget No matching version found for playwright-core@1.64.0-alpha-1790635538000.
 ```
 
-**根因**：`@playwright/mcp@0.0.82` 依赖的是 **alpha 预发布版** 的 playwright-core
+**根因**：`@playwright/mcp@0.0.83` 依赖的是 **alpha 预发布版** 的 playwright-core
 （形如 `1.64.0-alpha-<时间戳>`）。国内镜像 `registry.npmmirror.com` **默认不同步 alpha / prerelease 版本**，
 所以查不到这个版本号 —— 这与插件本身无关，是镜像同步策略导致的。
 
@@ -228,7 +228,7 @@ export PW_MCP_NPM_REGISTRY=https://registry.npmjs.org
 
 ```bash
 node -e "console.log(require('@playwright/mcp/package.json').version)"
-# 应输出 0.0.82
+# 应输出 0.0.83
 
 ---
 
