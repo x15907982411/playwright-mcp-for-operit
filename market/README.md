@@ -39,7 +39,7 @@
 - **重活（下载浏览器、预编译等）必须放到首次启动时由插件自己完成**（写进入口脚本，自举式）；
 - 不能假设用户会去终端手动装包。
 
-本项目自 v1.0.5 起按这个思路改造：`package.json` 声明 `@playwright/mcp`，`playwright_mcp.py` 作为**自举转发器**在首次启动时补齐 MCP 包与 Chromium。
+本项目自 v1.0.5 起按这个思路改造：`package.json` 声明 `@playwright/mcp`，`playwrightmcp.py` 作为**自举转发器**在首次启动时补齐 MCP 包与 Chromium。
 
 ---
 
@@ -52,7 +52,7 @@
 
 1. 在 Operit 应用中打开**发布页面**，选择本地已构建的插件文件（本仓库即 `config/mcp_config.json`）。
 2. 「发布资源来源」选择 **引用 GitHub Release 资产**。
-3. 填写作者仓库链接（如 `https://github.com/x15907982411/playwright-mcp-for-operit`），加载后选择 Release（如 `v1.0.8`）和对应 zip 资产。
+3. 填写作者仓库链接（如 `https://github.com/x15907982411/playwright-mcp-for-operit`），加载后选择 Release（如 `v1.0.9`）和对应 zip 资产。
 4. 填写插件名称、介绍、分类、版本、支持的软件版本。
 5. 将配置 JSON（见 `publish_config.example.json`，或直接使用仓库根 `config/mcp_config.json`）粘贴到配置区域。
 6. 确认市场登记。Operit 会核对 Release 资产与本地文件一致，并由市场服务确认 Release 创建者即当前登录的 GitHub 作者。
@@ -119,22 +119,22 @@
 ```json
 {
   "mcpServers": {
-    "playwright_mcp": {
-      "command": "~/mcp_plugins/playwright_mcp/venv/bin/python",
-      "args": ["-m", "playwright_mcp"],
+    "playwrightmcp": {
+      "command": "~/mcp_plugins/playwrightmcp/venv/bin/python",
+      "args": ["-m", "playwrightmcp"],
       "autoApprove": [],
       "disabled": false,
       "env": {}
     }
   },
   "pluginMetadata": {
-    "playwright_mcp": {
+    "playwrightmcp": {
       "author": "x15907982411",
       "connectionType": "stdio",
       "description": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
       "disabled": false,
-      "id": "playwright_mcp",
-      "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwright_mcp",
+      "id": "playwrightmcp",
+      "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwrightmcp",
       "installedTime": 1788600000000,
       "isInstalled": true,
       "logoUrl": "",
@@ -143,19 +143,19 @@
       "repoUrl": "https://github.com/x15907982411/playwright-mcp-for-operit",
       "type": "local",
       "updatedAt": "2026-09-30T00:00:00Z",
-      "version": "1.0.8"
+      "version": "1.0.9"
     }
   }
 }
 ```
 
-**为什么这样填（v1.0.8 设计要点）：**
+**为什么这样填（v1.0.9 设计要点）：**
 
 | 字段/文件 | 值 | 原因 |
 |---|---|---|
 | `command` | `venv/bin/python` | 有 `requirements.txt` → Operit 按 PYTHON 项目启动 |
-| `args` | `["-m", "playwright_mcp"]` | 新版 Operit 强制「目录名 = 模块名」 |
-| 包内 `playwright_mcp.py` | 必备 | venv 里没有这个模块就跑不起来；它同时承担自举职责 |
+| `args` | `["-m", "playwrightmcp"]` | 新版 Operit 强制「目录名 = 模块名」 |
+| 包内 `playwrightmcp.py` | 必备 | venv 里没有这个模块就跑不起来；它同时承担自举职责 |
 | 包内 `requirements.txt` | 必备（可只写注释） | 让 Operit 判定为 PYTHON 项目 |
 | 包内 `package.json` | 必备 | 声明 `@playwright/mcp`，让 Operit 自动 npm install |
 | Chromium | **不放进包**（150MB） | 由转发器首次启动时复用/下载 |
@@ -164,7 +164,7 @@
 **首次启动行为（用户看到什么）：**
 
 1. 市场装完 → 重启 MCP → 首次启动会依次检查：本地 MCP 包 → 全局 MCP 包 → 自动 `npm install`；然后检查 Chromium → 复用 → 自动下载（约 150MB，数分钟）。
-2. 日志写到 `~/mcp_plugins/playwright_mcp/bootstrap.log`，可在 Operit 日志或文件管理器查看。
+2. 日志写到 `~/mcp_plugins/playwrightmcp/bootstrap.log`，可在 Operit 日志或文件管理器查看。
 3. 若首次启动因下载超时失败，**再重启一次 MCP 即可**（包/浏览器已下载完成）。
 4. 重启工具报 `Unknown error` 不代表失败 —— 以 `ping_mcp` 能否列出 25 个工具为准。
 
@@ -174,13 +174,13 @@
 
 | 项 | 检查 |
 |---|---|
-| **zip 根结构** | 解压后直接是 `playwright_mcp/`（内含 `playwright_mcp.py`、`requirements.txt`、`package.json`、`mcp.config.json`） |
-| **必需文件** | 上述 4 个文件齐全（缺 `playwright_mcp.py` 会导致 `ModuleNotFoundError`） |
+| **zip 根结构** | 解压后直接是 `playwrightmcp/`（内含 `playwrightmcp.py`、`requirements.txt`、`package.json`、`mcp.config.json`） |
+| **必需文件** | 上述 4 个文件齐全（缺 `playwrightmcp.py` 会导致 `ModuleNotFoundError`） |
 | **配置 JSON** | `mcp.config.json` / 粘贴的配置 JSON 可被 `JSON.parse` 解析（无注释、无尾逗号） |
 | **版本一致性** | `package.json` / `pluginMetadata.version` / README 徽章 / install.sh 头部四处一致 |
 | **市场登记版本** | 必须**大于当前已有版本**（曾遇到 409 `version_conflict`：服务端拿应用版本参与比较，建议用 `1.0.x` 递增） |
 | **Release 资产** | 若走引用路线，Release 资产必须与本地所选文件一致，且 Release 创建者 = 当前登录的 GitHub 作者 |
-| **自测** | 在干净目录里仅放包内文件，直接 `python3 playwright_mcp.py` 看能否自举到启动（不依赖全局包） |
+| **自测** | 在干净目录里仅放包内文件，直接 `python3 playwrightmcp.py` 看能否自举到启动（不依赖全局包） |
 
 ---
 

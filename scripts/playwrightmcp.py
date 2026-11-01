@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright MCP for Operit —— 自举转发器 (v1.0.8)
+Playwright MCP for Operit —— 自举转发器 (v1.0.9)
 
 设计目标：无论从 Operit 市场（自动 npm install）还是手动解压安装，
 首次启动都能自己把依赖补齐，做到真正的「装完即用」。
@@ -21,7 +21,7 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.8)
 环境变量（均可选）：
   NODE_BIN                 指定 node 可执行文件
   PLAYWRIGHT_CHROME_BIN    指定 Chromium 可执行文件
-  PW_MCP_VER               MCP 版本，默认 0.0.83
+  PW_MCP_VER               MCP 版本，默认 0.0.84
   PW_MCP_MIN_BUILD         期望的 chromium build 下限，默认 1237（低于此值仅告警不报错）
   PW_MCP_PREFERRED_BUILD   多个 build 并存时优先选用，默认 1237；设 0 关闭偏好
                            （proot 下 rev1246+ 启动即 SIGTRAP，见 docs/TROUBLESHOOTING.md 问题 13）
@@ -44,6 +44,7 @@ import os
 import shutil
 import subprocess
 import sys
+import shlex
 import time
 
 def _int_env(name: str, default: int) -> int:
@@ -63,7 +64,7 @@ def _int_env(name: str, default: int) -> int:
 
 
 MCP_PKG = "@playwright/mcp"
-MCP_VER = os.environ.get("PW_MCP_VER", "0.0.83")
+MCP_VER = os.environ.get("PW_MCP_VER", "0.0.84")
 MIN_CHROMIUM_BUILD = _int_env("PW_MCP_MIN_BUILD", 1237)
 # 已知可用 build：proot 环境下 rev1246+（CFT 154.x）启动即 SIGTRAP，
 # 而 1237 在旧/新驱动下均实测完全兼容。多个 build 并存时优先选它，
@@ -102,7 +103,7 @@ def _rotate_log_if_needed() -> None:
 
 def log(msg: str, level: str = "INFO") -> None:
     line = f"[{_stamp()}][{level}] {msg}"
-    print(f"[playwright_mcp] {msg}", file=sys.stderr, flush=True)
+    print(f"[playwrightmcp] {msg}", file=sys.stderr, flush=True)
     try:
         _rotate_log_if_needed()
         with open(LOG_PATH, "a", encoding="utf-8") as fh:
@@ -115,10 +116,10 @@ def die(msg: str, hint: str = "") -> None:
     log(msg, "ERROR")
     if hint:
         log(hint, "HINT")
-    print(f"\n[playwright_mcp] 启动失败：{msg}", file=sys.stderr, flush=True)
+    print(f"\n[playwrightmcp] 启动失败：{msg}", file=sys.stderr, flush=True)
     if hint:
-        print(f"[playwright_mcp] 建议：{hint}", file=sys.stderr, flush=True)
-    print("[playwright_mcp] 详细日志见插件目录 bootstrap.log", file=sys.stderr, flush=True)
+        print(f"[playwrightmcp] 建议：{hint}", file=sys.stderr, flush=True)
+    print("[playwrightmcp] 详细日志见插件目录 bootstrap.log", file=sys.stderr, flush=True)
     sys.exit(1)
 
 
@@ -176,7 +177,7 @@ def run(cmd: list[str], timeout: int = 900, env: dict | None = None,
 
 
 def npm_registry_args() -> list[str]:
-    # 默认用官方源：0.0.83 依赖 playwright-core@1.64.0-alpha-*（alpha），
+    # 默认用官方源：0.0.84 依赖 playwright-core@1.65.0-alpha-*（alpha），
     # 国内镜像 npmmirror 可能未同步 -> ETARGET。如需镜像，设 PW_MCP_NPM_REGISTRY。
     registry = os.environ.get("PW_MCP_NPM_REGISTRY") or "https://registry.npmjs.org"
     return ["--registry", registry]
@@ -299,7 +300,7 @@ def _chrome_build(path: str) -> int:
 
 def find_chrome() -> str | None:
     env_bin = os.environ.get("PLAYWRIGHT_CHROME_BIN")
-    if env_bin and os.path.isfile(env_bin) and os.path.getsize(env_bin) > 1024 * 1024:
+    if env_bin and os.path.isfile(env_bin) and os.access(env_bin, os.X_OK) and os.path.getsize(env_bin) > 1024 * 1024:
         return env_bin
 
     pref = PREFERRED_BUILD
@@ -343,7 +344,7 @@ def download_chrome(node: str, cli: str) -> str | None:
     if host:
         env["PLAYWRIGHT_DOWNLOAD_HOST"] = host
     try:
-        # install-browser 才是 @playwright/mcp 0.0.83 的浏览器安装入口
+        # install-browser 才是 @playwright/mcp 0.0.84 的浏览器安装入口
         # （cli.js 内部再映射为下游的 install）；直接传 "install chromium"
         # 会被顶层解析器拒绝：too many arguments. Expected 0 arguments but got 2
         proc = run([node, cli, "install-browser", "chromium"], timeout=1800, env=env)
@@ -443,7 +444,11 @@ def main() -> None:
         )
 
     args = [node, cli, "--headless", "--no-sandbox", "--executable-path", chrome]
-    extra = os.environ.get("PW_MCP_EXTRA_ARGS", "").split()
+    try:
+        extra = shlex.split(os.environ.get("PW_MCP_EXTRA_ARGS", ""))
+    except ValueError as _e:
+        log(f"PW_MCP_EXTRA_ARGS 解析失败（{_e}），已忽略", "WARN")
+        extra = []
     args += extra
     args += sys.argv[1:]
 

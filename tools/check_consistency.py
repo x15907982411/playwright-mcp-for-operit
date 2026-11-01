@@ -78,7 +78,7 @@ def _ver_tuple(text: str) -> tuple[int, ...]:
 
 # ------------------------------------------------------------------ 1. 语法
 section("1. 语法")
-py = "scripts/playwright_mcp.py"
+py = "scripts/playwrightmcp.py"
 if os.path.isfile(os.path.join(ROOT, py)):
     r = subprocess.run([sys.executable, "-m", "py_compile",
                         os.path.join(ROOT, py)],
@@ -357,7 +357,7 @@ def _mentions(text: str, var: str) -> bool:
 
 # ------------------------------------------------------------------ 3. 环境变量
 section("3. 环境变量对照（代码 ⇄ docstring ⇄ DEPLOY 表）")
-code = read("scripts/playwright_mcp.py")
+code = read("scripts/playwrightmcp.py")
 tree = ast.parse(code)  # 语法已在第 1 节校验过
 docstring = ast.get_docstring(tree) or ""
 deploy = read("docs/DEPLOY.md")

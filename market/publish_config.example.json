@@ -3,7 +3,7 @@
 
   "mcpServers": {
     "<server_id>": {
-      "_comment": "serverId 只允许字母、下划线和空格（如 playwright_mcp）；安装后它将成为本地 mcp_config.json 中的 key。",
+      "_comment": "serverId 只允许字母、下划线和空格（如 playwrightmcp）；安装后它将成为本地 mcp_config.json 中的 key。",
       "command": "node",
       "args": [
         "<Linux 侧入口文件绝对路径，或相对 ~/mcp_plugins/<server_id>/ 的路径>",

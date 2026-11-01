@@ -37,27 +37,27 @@
 
 ```bash
 # 看进度 / 确认是否已完成
-cat ~/mcp_plugins/playwright_mcp/bootstrap.log
+cat ~/mcp_plugins/playwrightmcp/bootstrap.log
 
 # 或手动预完成（避免首次启动超时）
-cd ~/mcp_plugins/playwright_mcp
+cd ~/mcp_plugins/playwrightmcp
 npm install --no-audit --no-fund
 ```
 
 完成后在 Operit 内**再重启一次 MCP** 即可。
 
-> 💡 若不希望自动下载，可在 `mcpServers.playwright_mcp.env` 里设 `PW_MCP_AUTO_DOWNLOAD=0` 并自行准备 Chromium。
+> 💡 若不希望自动下载，可在 `mcpServers.playwrightmcp.env` 里设 `PW_MCP_AUTO_DOWNLOAD=0` 并自行准备 Chromium。
 
 ## 问题 2：怎么读自举日志（bootstrap.log）
 
-**位置**：`~/mcp_plugins/playwright_mcp/bootstrap.log`（与转发器同目录，即插件的 Linux 运行目录）。
+**位置**：`~/mcp_plugins/playwrightmcp/bootstrap.log`（与转发器同目录，即插件的 Linux 运行目录）。
 
 ```bash
 # 实时跟踪
-tail -f ~/mcp_plugins/playwright_mcp/bootstrap.log
+tail -f ~/mcp_plugins/playwrightmcp/bootstrap.log
 
 # 看最后 30 行
-tail -30 ~/mcp_plugins/playwright_mcp/bootstrap.log
+tail -30 ~/mcp_plugins/playwrightmcp/bootstrap.log
 ```
 
 日志会逐行说明：node 路径、MCP 包来源（本地/全局/自动安装）、Chromium 路径与 build 号、启动命令。排查时先把这份日志发出来，基本能定位到具体哪一步。
@@ -99,7 +99,7 @@ find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linu
 export PLAYWRIGHT_CHROME_BIN=/root/.cache/ms-playwright/chromium-1237/chrome-linux/chrome
 ```
 
-> **实测（2026-09-19）**：`chromium-1237` 在旧驱动（1.63-alpha）与**新版驱动 `1.64.0-alpha-*` 下均完全兼容**（CDP 向后兼容；实测 0.0.82 启动正常、导航成功）。
+> **实测（2026-09-19）**：`chromium-1237` 在旧驱动（1.63-alpha）与**新版驱动 `1.65.0-alpha-*` 下均完全兼容**（CDP 向后兼容；实测 0.0.82 启动正常、导航成功）。
 > 结论：**优先复用本机已有 Chromium，不要盲目下载。**
 >
 > ⚠️ 补充（2026-09-23）：**新版反而会崩** —— rev1246+（CFT 154.x）在 proot 下启动即 SIGTRAP，详见 [问题 13](#chromium-sigtrap)。
@@ -113,16 +113,16 @@ export PLAYWRIGHT_CHROME_BIN=/root/.cache/ms-playwright/chromium-1237/chrome-lin
 **根因（两种）**：
 
 1. Operit 的 stdio 本地插件**在 Linux 侧 `~/mcp_plugins/<id>/` 启动**，Android 源目录不会自动同步；目录缺失时启动流程直接异常。
-2. **venv 缺失**：启动命令是 `venv/bin/python -m playwright_mcp`，而 Operit 只在「安装/重装」时创建 venv，单纯重启不会重建。
+2. **venv 缺失**：启动命令是 `venv/bin/python -m playwrightmcp`，而 Operit 只在「安装/重装」时创建 venv，单纯重启不会重建。
 
 **修复**：
 
 ```bash
 # 补 Linux 侧目录
-cp -r /sdcard/Download/Operit/mcp_plugins/playwright_mcp ~/mcp_plugins/
+cp -r /sdcard/Download/Operit/mcp_plugins/playwrightmcp ~/mcp_plugins/
 
 # 补 venv
-cd ~/mcp_plugins/playwright_mcp && python3 -m venv venv
+cd ~/mcp_plugins/playwrightmcp && python3 -m venv venv
 
 # 然后 Operit 内 restart_mcp_with_logs → 预期全部 success
 # （或用一键脚本：bash install.sh）
@@ -130,7 +130,7 @@ cd ~/mcp_plugins/playwright_mcp && python3 -m venv venv
 
 ## 问题 6：重启报 Unknown error，但 ping_mcp 正常
 
-**现象**：`restart_mcp_with_logs` 返回 `Unknown error`，但去插件状态页看是「已安装」，`ping_mcp(playwright_mcp)` 也能列出 25 个工具。
+**现象**：`restart_mcp_with_logs` 返回 `Unknown error`，但去插件状态页看是「已安装」，`ping_mcp(playwrightmcp)` 也能列出 25 个工具。
 
 **结论：这不是故障**。Operit 的重启工具在部分情况下会抛出错误，但插件实际已成功加载。
 
@@ -140,7 +140,7 @@ cd ~/mcp_plugins/playwright_mcp && python3 -m venv venv
 
 **现象**：配置照抄了「精简版」片段后，插件加载失败、重启报空指针；Operit 日志可见 `MCPRepository.kt` 的 `metadata.copy()` 抛 NPE（`updatedAt` 为 null）。
 
-**根因**：`pluginMetadata.playwright_mcp` 缺少 `updatedAt` / `longDescription` / `logoUrl` / `installedTime` 等非空字段。
+**根因**：`pluginMetadata.playwrightmcp` 缺少 `updatedAt` / `longDescription` / `logoUrl` / `installedTime` 等非空字段。
 
 **修复（v1.0.4 起根治）**：使用仓库 [config/mcp_config.json](../config/mcp_config.json) 全字段模板，或直接跑新版 `install.sh`（自动生成 15 字段完整 pluginMetadata 并合并，原配置自动备份）。**不要再手写精简片段**。
 
@@ -160,13 +160,13 @@ cd ~/mcp_plugins/playwright_mcp && python3 -m venv venv
 
 **现象**：`browser_take_screenshot` 返回相对路径，找不到文件。
 
-**说明**：MCP 进程 cwd = `~/mcp_plugins/playwright_mcp/`（Linux 侧）。
+**说明**：MCP 进程 cwd = `~/mcp_plugins/playwrightmcp/`（Linux 侧）。
 
 - 指定 `filename` → 存 cwd 根目录
 - 不指定 → 存 `.playwright-mcp/` 子目录（snapshot / console 日志同处）
 
 ```bash
-ls ~/mcp_plugins/playwright_mcp/.playwright-mcp/
+ls ~/mcp_plugins/playwrightmcp/.playwright-mcp/
 ```
 
 ## 问题 10：MCP 启动成功但浏览器报错
@@ -183,14 +183,14 @@ npx playwright install-deps chromium
 
 ## 问题 11：ping_mcp 显示 25 个工具（旧文档说 24）？
 
-**25 个是正确的**。官方 `@playwright/mcp` v0.0.83（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
+**25 个是正确的**。官方 `@playwright/mcp` v0.0.84（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
 
 `click` / `close` / `console_messages` / `drag` / `drop` / `evaluate` / `file_upload` / `fill_form` / `find` / `handle_dialog` / `hover` / `navigate` / `navigate_back` / `network_request` / `network_requests` / `press_key` / `resize` / `emulate_media` / `run_code_unsafe` / `select_option` / `snapshot` / `tabs` / `take_screenshot` / `type` / `wait_for`
 
-如果少于 25 个，请先确认版本确实是 **0.0.83**（v0.0.80 及更早为 24 个）：
+如果少于 25 个，请先确认版本确实是 **0.0.84**（v0.0.80 及更早为 24 个）：
 
 ```bash
-cat ~/mcp_plugins/playwright_mcp/bootstrap.log   # 会打印实际使用的 cli.js 路径
+cat ~/mcp_plugins/playwrightmcp/bootstrap.log   # 会打印实际使用的 cli.js 路径
 node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json').version)"
 ```
 
@@ -202,11 +202,11 @@ node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json
 
 ```
 npm error code ETARGET
-npm error notarget No matching version found for playwright-core@1.64.0-alpha-1790635538000.
+npm error notarget No matching version found for playwright-core@1.65.0-alpha-1790635538000.
 ```
 
-**根因**：`@playwright/mcp@0.0.83` 依赖的是 **alpha 预发布版** 的 playwright-core
-（形如 `1.64.0-alpha-<时间戳>`）。国内镜像 `registry.npmmirror.com` **默认不同步 alpha / prerelease 版本**，
+**根因**：`@playwright/mcp@0.0.84` 依赖的是 **alpha 预发布版** 的 playwright-core
+（形如 `1.65.0-alpha-<时间戳>`）。国内镜像 `registry.npmmirror.com` **默认不同步 alpha / prerelease 版本**，
 所以查不到这个版本号 —— 这与插件本身无关，是镜像同步策略导致的。
 
 **解决**：改用官方源。
@@ -228,7 +228,7 @@ export PW_MCP_NPM_REGISTRY=https://registry.npmjs.org
 
 ```bash
 node -e "console.log(require('@playwright/mcp/package.json').version)"
-# 应输出 0.0.83
+# 应输出 0.0.84
 
 ---
 

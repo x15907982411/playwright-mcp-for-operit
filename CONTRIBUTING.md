@@ -20,7 +20,7 @@
 
 1. **环境**：设备型号、Android 版本、proot/Termux 环境、node 版本（`node -v`）
 2. **复现步骤**：安装方式（市场 / 一键脚本 / 手动）、报错输出（请贴 `tail -20` 的完整日志）
-3. **自举日志**：`tail -30 ~/mcp_plugins/playwright_mcp/bootstrap.log`
+3. **自举日志**：`tail -30 ~/mcp_plugins/playwrightmcp/bootstrap.log`
 4. **期望行为 vs 实际行为**
 5. 截图或日志文件（敏感信息请打码）
 
@@ -40,11 +40,11 @@
 2. 遵循项目风格：
    - `install.sh` / `uninstall.sh`：`set -eu`（**不要加 `pipefail`**，`cmd | head -1` 的 SIGPIPE 会误杀脚本）、错误显式退出并给出可操作提示、幂等设计（可重复执行）、备份用户配置
    - **npm install 只能跑在 Linux 文件系统内**（`/sdcard` 是 FUSE，不支持文件锁/符号链接）
-   - 转发器 `scripts/playwright_mcp.py`：只使用标准库，保持自举能力（缺依赖要能自己补）
+   - 转发器 `scripts/playwrightmcp.py`：只使用标准库，保持自举能力（缺依赖要能自己补）
    - 配置模板：`pluginMetadata` 必须保持 15 字段全量（缺 `updatedAt` 会触发 Operit NPE）
 3. 本地验证：
    - `bash -n install.sh && bash -n uninstall.sh`
-   - `python3 -m py_compile scripts/playwright_mcp.py`
+   - `python3 -m py_compile scripts/playwrightmcp.py`
    - 在干净目录里仅放包内文件，跑一次转发器确认自举链路可用
 4. 提交 PR，使用 PR 模板填写，描述改动与测试情况
 
@@ -54,7 +54,7 @@
 
 1. 更新以下四处版本号（保持一致）：
    - `package.json` 的 `version`
-   - `config/mcp_config.json` 的 `pluginMetadata.playwright_mcp.version`
+   - `config/mcp_config.json` 的 `pluginMetadata.playwrightmcp.version`
    - `install.sh` / `uninstall.sh` 头部注释
    - `README.md` 徽章
 2. 推送 main → 打 tag → 创建 Release（附 zip 资产）

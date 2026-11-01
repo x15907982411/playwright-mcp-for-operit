@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "playwright_mcp": {
-      "command": "~/mcp_plugins/playwright_mcp/venv/bin/python",
+    "playwrightmcp": {
+      "command": "~/mcp_plugins/playwrightmcp/venv/bin/python",
       "args": [
         "-m",
-        "playwright_mcp"
+        "playwrightmcp"
       ],
       "autoApprove": [],
       "disabled": false,
@@ -12,22 +12,22 @@
     }
   },
   "pluginMetadata": {
-    "playwright_mcp": {
+    "playwrightmcp": {
       "author": "x15907982411",
       "connectionType": "stdio",
       "description": "Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）",
       "disabled": false,
-      "id": "playwright_mcp",
-      "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwright_mcp",
-      "installedTime": 1788600000000,
+      "id": "playwrightmcp",
+      "installedPath": "/storage/emulated/0/Download/Operit/mcp_plugins/playwrightmcp",
+      "installedTime": 1793491200000,
       "isInstalled": true,
       "logoUrl": "",
       "longDescription": "基于官方 @playwright/mcp 的网页自动化插件：headless Chromium 渲染，导航/快照/点击/填表/截图/网络抓包/控制台日志，共 25 个 browser_* 工具。",
       "name": "Playwright MCP for Operit",
       "repoUrl": "https://github.com/x15907982411/playwright-mcp-for-operit",
       "type": "local",
-      "updatedAt": "2026-09-30T00:00:00Z",
-      "version": "1.0.8"
+      "updatedAt": "2026-11-01T00:00:00Z",
+      "version": "1.0.9"
     }
   }
 }

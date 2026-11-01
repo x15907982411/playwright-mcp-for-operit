@@ -15,7 +15,7 @@
 # ============================================================
 set -eu
 
-MCP_ID="playwright_mcp"
+MCP_ID="playwrightmcp"
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 MAIN_CFG="$OPERIT_DATA_DIR/mcp_plugins/mcp_config.json"
@@ -48,7 +48,7 @@ log "    模式           : $( [ "$DRY_RUN" = 1 ] && echo 'DRY RUN' || echo '实
 step "[2/4] 从 mcp_config.json 移除配置项"
 if [ -f "$MAIN_CFG" ]; then
     if [ "$DRY_RUN" = 0 ]; then
-      BAK="$MAIN_CFG.bak.$(date +%s)"
+      BAK="$MAIN_CFG.bak.$(date +%s).$$"
       if cp "$MAIN_CFG" "$BAK"; then
         log "    主配置已备份: $(basename "$BAK")"
       else
@@ -59,7 +59,7 @@ if [ -f "$MAIN_CFG" ]; then
       ( cd "$(dirname "$MAIN_CFG")" && ls -1t "$(basename "$MAIN_CFG").bak."* 2>/dev/null | tail -n +6 | while IFS= read -r old; do rm -f -- "$old"; done ) || true
     fi
     if [ "$DRY_RUN" = 1 ]; then
-      log "    [dry-run] 从 mcp_config.json 移除 mcpServers.playwright_mcp 与 pluginMetadata.playwright_mcp"
+      log "    [dry-run] 从 mcp_config.json 移除 playwrightmcp / playwright_mcp 相关条目"
     else
       node - "$MAIN_CFG" <<'NODE'
 const fs = require('fs');
@@ -67,12 +67,16 @@ const p = process.argv[2];
 let d;
 try { d = JSON.parse(fs.readFileSync(p, 'utf8')); }
 catch (e) { console.error('    ⚠️  主配置解析失败，已跳过（原文件未改动）: ' + e.message); process.exit(1); }
+// 新旧两个 ID 都清掉，免得 1.0.8 及更早装的留下孤儿条目
+const ids = ['playwrightmcp', 'playwright_mcp'];
 let n = 0;
-if (d.mcpServers && Object.prototype.hasOwnProperty.call(d.mcpServers, 'playwright_mcp')) {
-  delete d.mcpServers.playwright_mcp; n++;
-}
-if (d.pluginMetadata && Object.prototype.hasOwnProperty.call(d.pluginMetadata, 'playwright_mcp')) {
-  delete d.pluginMetadata.playwright_mcp; n++;
+for (const id of ids) {
+  if (d.mcpServers && Object.prototype.hasOwnProperty.call(d.mcpServers, id)) {
+    delete d.mcpServers[id]; n++;
+  }
+  if (d.pluginMetadata && Object.prototype.hasOwnProperty.call(d.pluginMetadata, id)) {
+    delete d.pluginMetadata[id]; n++;
+  }
 }
 fs.writeFileSync(p, JSON.stringify(d, null, 2) + '\n');
 console.log('    ✅ 已移除 ' + n + ' 个配置项');
@@ -109,6 +113,14 @@ if [ "$PURGE" = 1 ]; then
 else
     log "    ℹ️  保留源目录（如需彻底删除加 --purge）：$ANDROID_DIR"
 fi
+
+# 旧版 ID 的目录（1.0.8 及更早装的）不自动删，只提示
+for _old in "$LINUX_RUN_DIR/playwright_mcp" "$OPERIT_DATA_DIR/mcp_plugins/playwright_mcp"; do
+  if [ -d "$_old" ]; then
+    log "    ℹ️  旧版目录仍在：$_old"
+    log "        新版不再使用，确认无用后手动删除即可"
+  fi
+done
 
 printf '\n'
 log "==> 收尾：在 Operit 内执行 restart_mcp_with_logs 使生效"

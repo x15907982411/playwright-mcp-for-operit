@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""scripts/playwright_mcp.py 的 find_chrome() 边界单元测试。
+"""scripts/playwrightmcp.py 的 find_chrome() 边界单元测试。
 
 只依赖标准库（unittest / importlib / tempfile），可直接：
     python -m unittest discover -s tests -v
@@ -23,7 +23,7 @@ import tempfile
 import unittest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FORWARDER = os.path.join(REPO_ROOT, "scripts", "playwright_mcp.py")
+FORWARDER = os.path.join(REPO_ROOT, "scripts", "playwrightmcp.py")
 
 # 与转发器 import 期可能读取的键保持同步；未备份的键会污染进程环境。
 # 注：HOME 也在受管键内 —— setUp 会将其清空；若将来新增依赖 HOME 的用例，

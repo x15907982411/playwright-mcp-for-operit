@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Playwright MCP for Operit - 一键部署脚本 (v1.0.6)
+# Playwright MCP for Operit - 一键部署脚本 (v1.0.9)
 #
 # 用法:
 #   bash install.sh                 # 默认：依赖装到 Linux 运行目录（推荐）
@@ -27,7 +27,7 @@
 #   - npm install 必须在 Linux 文件系统内执行 —— /sdcard 是 FUSE，不支持文件锁与
 #     符号链接，在 Android 侧目录跑 npm 会失败或产生半成品。因此 local 模式的安装
 #     动作发生在双路径部署完成后，在 Linux 运行目录内执行。
-#   - venv 不可缺：启动命令是 venv/bin/python -m playwright_mcp，而 Operit 只在
+#   - venv 不可缺：启动命令是 venv/bin/python -m playwrightmcp，而 Operit 只在
 #     「安装/重装」时创建 venv，单纯重启不会重建，因此脚本自己先建好。
 #
 # 可覆盖变量:
@@ -40,9 +40,9 @@
 # head 提前关闭管道会产生 SIGPIPE，配合 pipefail 会让 set -e 误杀脚本。
 set -eu
 
-MCP_ID="playwright_mcp"
-MCP_VER="0.0.83"          # 上游 @playwright/mcp 版本
-PLUGIN_VER="1.0.8"       # 本插件自身的版本（写入 pluginMetadata.version）
+MCP_ID="playwrightmcp"
+MCP_VER="0.0.84"          # 上游 @playwright/mcp 版本
+PLUGIN_VER="1.0.9"       # 本插件自身的版本（写入 pluginMetadata.version）
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
@@ -68,15 +68,20 @@ for arg in "$@"; do
     --dry-run)    DRY_RUN=1             ;;
     --keep-deps)  KEEP_DEPS=1           ;;
     -h|--help)    usage; exit 0          ;;
-    *) echo "⚠️  未知参数: $arg（已忽略；可用: --global --skip-deps --keep-deps --dry-run --help）" ;;
+    *) echo "❌ 未知参数: $arg" >&2; usage; exit 2 ;;
   esac
 done
+# 环境变量 PW_MCP_INSTALL_MODE 也可能传错，这里统一校验最终值
+case "$INSTALL_MODE" in
+  local|global|skip) ;;
+  *) echo "❌ PW_MCP_INSTALL_MODE 取值非法: $INSTALL_MODE（可用: local / global / skip）" >&2; exit 2 ;;
+esac
 
 log()  { echo "$*"; }
 warn() { echo "⚠️  $*" >&2; }
 step() { echo; echo "==> $*"; }
 
-# 默认使用官方源：0.0.83 依赖 playwright-core@1.64.0-alpha-*（alpha 版本），
+# 默认使用官方源：0.0.84 依赖 playwright-core@1.65.0-alpha-*（alpha 版本），
 # 国内镜像 registry.npmmirror.com 可能尚未同步 → 会报 ETARGET。
 # 如需镜像，显式设置 PW_MCP_NPM_REGISTRY=https://registry.npmmirror.com
 NPM_REG_ARGS=(--registry "${PW_MCP_NPM_REGISTRY:-https://registry.npmjs.org}")
@@ -103,7 +108,7 @@ log "    Linux 运行: $LINUX_RUN_DIR/$MCP_ID"
 log "    依赖模式  : $INSTALL_MODE$( [ "$DRY_RUN" = 1 ] && echo '   [DRY RUN]' || true )"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FORWARDER_TEMPLATE="$SCRIPT_DIR/scripts/playwright_mcp.py"
+FORWARDER_TEMPLATE="$SCRIPT_DIR/scripts/playwrightmcp.py"
 
 ANDROID_DIR="$OPERIT_DATA_DIR/mcp_plugins/$MCP_ID"
 RUN_DIR="$LINUX_RUN_DIR/$MCP_ID"
@@ -115,21 +120,21 @@ if [ "$DRY_RUN" = 1 ]; then
 else
   mkdir -p "$ANDROID_DIR"
   if [ -f "$FORWARDER_TEMPLATE" ]; then
-    cp "$FORWARDER_TEMPLATE" "$ANDROID_DIR/playwright_mcp.py"
+    cp "$FORWARDER_TEMPLATE" "$ANDROID_DIR/playwrightmcp.py"
   else
     warn "未找到 $FORWARDER_TEMPLATE（脚本被单独下载？）"
-    warn "   -> 尝试从仓库自动下载 scripts/playwright_mcp.py ..."
-    TMP_FWD="$ANDROID_DIR/.playwright_mcp.py.tmp"
+    warn "   -> 尝试从仓库自动下载 scripts/playwrightmcp.py ..."
+    TMP_FWD="$ANDROID_DIR/.playwrightmcp.py.tmp"
     rm -f "$TMP_FWD"
     # 先下到临时文件，校验（非空 + shebang）通过后再原子替换，避免断线留半成品
     if curl -fsSL --max-time 60 \
-        "https://api.github.com/repos/$REPO_SLUG/contents/scripts/playwright_mcp.py?ref=main" \
+        "https://api.github.com/repos/$REPO_SLUG/contents/scripts/playwrightmcp.py?ref=main" \
         -H "Accept: application/vnd.github.raw" \
         -o "$TMP_FWD" 2>/dev/null \
        && [ -s "$TMP_FWD" ] \
        && head -c 2 "$TMP_FWD" | grep -q '#!' \
 && { command -v python3 >/dev/null 2>&1 && python3 -c "import sys;compile(open(sys.argv[1],encoding='utf-8').read(),sys.argv[1],'exec')" "$TMP_FWD" 2>/dev/null || ! command -v python3 >/dev/null 2>&1; }; then
-      mv -f "$TMP_FWD" "$ANDROID_DIR/playwright_mcp.py"
+      mv -f "$TMP_FWD" "$ANDROID_DIR/playwrightmcp.py"
       log "    V 已自动下载转发器（GitHub API，已校验）"
     else
       rm -f "$TMP_FWD"
@@ -146,7 +151,7 @@ else
   else
     printf '{\n  "name": "playwright-mcp-for-operit-runtime",\n  "private": true,\n  "dependencies": { "%s": "%s" }\n}\n' "@playwright/mcp" "$MCP_VER" > "$ANDROID_DIR/package.json"
   fi
-  log "    ✅ playwright_mcp.py / requirements.txt / package.json"
+  log "    ✅ playwrightmcp.py / requirements.txt / package.json"
 fi
 
 # ---------------------------------------------------------------- 3. Chromium 探测
@@ -164,7 +169,7 @@ find_chrome() {
       elif [ -z "$best" ]; then
         best="$found"
       fi
-    done < <(find "$base" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M 2>/dev/null || true)
+    done < <(find "$base" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M -executable 2>/dev/null || true)
   done
   [ -n "$best" ] && printf '%s' "$best"
 }
@@ -187,7 +192,7 @@ fi
 
 # ---------------------------------------------------------------- 4. 生成配置
 step "[4/6] 生成 pluginMetadata 完整配置（15 字段，防 NPE）"
-SEG_FILE="$(mktemp /tmp/playwright_mcp.segment.XXXXXX.json)"
+SEG_FILE="$(mktemp /tmp/playwrightmcp.segment.XXXXXX.json)"
 INSTALLED_PATH="$(printf '%s' "$ANDROID_DIR" | sed 's|^/sdcard/|/storage/emulated/0/|')"
 # Operit 的 command 必须用 ~/ 形式（$HOME 才是运行目录）；写成绝对路径会被加载器剔除
 case "$LINUX_RUN_DIR" in
@@ -208,21 +213,21 @@ const fs = require('fs');
 const [segPath, ver, installedPath, repoSlug, venvPy, pluginVer] = process.argv.slice(2);
 const seg = {
   mcpServers: {
-    playwright_mcp: {
+    playwrightmcp: {
       command: venvPy,
-      args: ['-m', 'playwright_mcp'],
+      args: ['-m', 'playwrightmcp'],
       autoApprove: [],
       disabled: false,
       env: {},
     },
   },
   pluginMetadata: {
-    playwright_mcp: {
+    playwrightmcp: {
       author: 'x15907982411',
       connectionType: 'stdio',
       description: 'Playwright MCP - 网页自动化（导航/点击/填表/截图/snapshot）',
       disabled: false,
-      id: 'playwright_mcp',
+      id: 'playwrightmcp',
       installedPath,
       installedTime: Date.now(),
       isInstalled: true,
@@ -250,7 +255,7 @@ else
     "$SEG_FILE" "$ANDROID_DIR/mcp.config.json"
 
   if [ -f "$MAIN_CFG" ]; then
-    BAK_FILE="$MAIN_CFG.bak.$(date +%s)"
+    BAK_FILE="$MAIN_CFG.bak.$(date +%s).$$"
     if cp "$MAIN_CFG" "$BAK_FILE"; then
       log "    主配置已备份: $(basename "$BAK_FILE")"
     else
@@ -286,20 +291,55 @@ if (!isPlainObj(main.pluginMetadata)) {
   }
   main.pluginMetadata = {};
 }
-main.mcpServers.playwright_mcp = seg.mcpServers.playwright_mcp;
-main.pluginMetadata.playwright_mcp = seg.pluginMetadata.playwright_mcp;
-fs.writeFileSync(mainPath, JSON.stringify(main, null, 2) + '\n');
+// 1.0.8 及更早的安装脚本用的是带下划线的 ID。老用户升级时如果不清理，
+// 旧条目会和新条目并存，Operit 会把两个都加载起来。
+const LEGACY_ID = 'playwright_mcp';
+const stale = [];
+if (Object.prototype.hasOwnProperty.call(main.mcpServers, LEGACY_ID)) {
+  delete main.mcpServers[LEGACY_ID];
+  stale.push('mcpServers.' + LEGACY_ID);
+}
+if (Object.prototype.hasOwnProperty.call(main.pluginMetadata, LEGACY_ID)) {
+  delete main.pluginMetadata[LEGACY_ID];
+  stale.push('pluginMetadata.' + LEGACY_ID);
+}
+if (stale.length) {
+  console.log('    [i] 检测到旧版 ID 的配置并已清理：' + stale.join(', '));
+}
+main.mcpServers.playwrightmcp = seg.mcpServers.playwrightmcp;
+main.pluginMetadata.playwrightmcp = seg.pluginMetadata.playwrightmcp;
+const tmpPath = mainPath + '.tmp.' + process.pid;
+fs.writeFileSync(tmpPath, JSON.stringify(main, null, 2) + '\n');
+fs.renameSync(tmpPath, mainPath);
 console.log('    ✅ 已合并进 ' + mainPath);
 NODE
 
+  # 旧版目录（1.0.8 及更早装的）不自动删，只提示一句
+  if [ -d "$LINUX_RUN_DIR/playwright_mcp" ]; then
+    warn "检测到旧版运行目录 $LINUX_RUN_DIR/playwright_mcp，新版用的是 playwrightmcp"
+    warn "旧目录已经不会被加载，确认无用后可手动删除"
+  fi
   mkdir -p "$LINUX_RUN_DIR"
   if [ "$KEEP_DEPS" = 1 ] && [ -d "$RUN_DIR" ]; then
-    KEEP_DEPS_EFFECTIVE=1
-    # --keep-deps：不重建目录，只覆盖脚本文件，完整保留 node_modules / venv
-    for _f in playwright_mcp.py requirements.txt package.json; do
-      if [ -f "$ANDROID_DIR/$_f" ]; then cp "$ANDROID_DIR/$_f" "$RUN_DIR/$_f"; fi
-    done
-    log "    i  --keep-deps：已保留 $RUN_DIR（node_modules / venv 未动）"
+    # 先看现有依赖实际是什么版本。版本对不上还硬保留，转发器启动时的版本校验
+    # 又会把包重装一遍，白白多绕一圈，不如当场挑明
+    _old_ver=""
+    if [ -f "$RUN_DIR/node_modules/@playwright/mcp/package.json" ]; then
+      _old_ver="$(node -p "require('$RUN_DIR/node_modules/@playwright/mcp/package.json').version" 2>/dev/null || true)"
+    fi
+    if [ "$_old_ver" = "$MCP_VER" ]; then
+      KEEP_DEPS_EFFECTIVE=1
+      # --keep-deps：不重建目录，只覆盖脚本文件，完整保留 node_modules / venv
+      for _f in playwrightmcp.py requirements.txt package.json; do
+        if [ -f "$ANDROID_DIR/$_f" ]; then cp "$ANDROID_DIR/$_f" "$RUN_DIR/$_f"; fi
+      done
+      log "    i  --keep-deps：已保留 $RUN_DIR（node_modules / venv 未动）"
+    else
+      warn "现有依赖版本 ${_old_ver:-未安装} 与目标 $MCP_VER 不一致，跳过保留"
+      warn "改为常规安装（重新安装依赖）"
+      rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
+      cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
+    fi
   else
     rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
     cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
@@ -324,11 +364,14 @@ elif [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
     fi
   else
     log "    目标: $RUN_DIR/node_modules（Linux 文件系统，规避 /sdcard FUSE 限制）"
-    if ( cd "$RUN_DIR" && npm install --no-audit --no-fund "${NPM_REG_ARGS[@]+${NPM_REG_ARGS[@]}}" >/tmp/pw_npm.log 2>&1 ); then
+    if [ ! -w "$RUN_DIR" ]; then
+      warn "运行目录不可写: $RUN_DIR"
+      warn "   跳过 npm install，交给转发器首次启动时重试（请检查目录权限）"
+    elif ( cd "$RUN_DIR" && npm install --no-audit --no-fund "${NPM_REG_ARGS[@]+${NPM_REG_ARGS[@]}}" >/tmp/pw_npm.log 2>&1 ); then
       log "    ✅ 依赖已安装（启动时无需再下载）"
     else
       warn "npm install 失败，将由转发器首次启动时重试"
-      warn "   注意: 0.0.83 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
+      warn "   注意: 0.0.84 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
       tail -5 /tmp/pw_npm.log 2>/dev/null || true
     fi
   fi
@@ -337,14 +380,14 @@ elif [ "$INSTALL_MODE" = "skip" ]; then
 fi
 
 # ---------------------------------------------------------------- 5.6 venv（PYTHON 项目启动必需）
-# 启动命令是 venv/bin/python -m playwright_mcp，而 Operit 只在「安装/重装」时
+# 启动命令是 venv/bin/python -m playwrightmcp，而 Operit 只在「安装/重装」时
 # 创建 venv（单纯重启不会重建），因此脚本自己先建好，避免首次重启报错。
 if [ "$DRY_RUN" = 0 ]; then
   step "[5.6/6] 准备 venv（$RUN_DIR/venv）"
   if [ -x "$RUN_DIR/venv/bin/python" ]; then
     log "    ✅ 已存在，跳过"
   elif python3 -m venv "$RUN_DIR/venv" >/dev/null 2>&1; then
-    log "    ✅ 已创建（启动命令 venv/bin/python -m playwright_mcp 可用）"
+    log "    ✅ 已创建（启动命令 venv/bin/python -m playwrightmcp 可用）"
   else
     warn "venv 创建失败（缺 python3-venv？）—— Operit 安装/重装插件时会自动创建"
   fi
@@ -356,10 +399,10 @@ if [ "$DRY_RUN" = 1 ]; then
   log "    [dry-run] 跳过"
 else
   OK=1
-  for f in playwright_mcp.py requirements.txt package.json mcp.config.json; do
+  for f in playwrightmcp.py requirements.txt package.json mcp.config.json; do
     [ -f "$ANDROID_DIR/$f" ] && log "    ✅ Android/$f" || { warn "缺少 Android/$f"; OK=0; }
   done
-  for f in playwright_mcp.py requirements.txt package.json; do
+  for f in playwrightmcp.py requirements.txt package.json; do
     [ -f "$RUN_DIR/$f" ] && log "    ✅ Linux/$f" || { warn "缺少 Linux/$f"; OK=0; }
   done
   if [ -f "$RUN_DIR/node_modules/@playwright/mcp/cli.js" ]; then
@@ -379,12 +422,17 @@ else
   fi
   [ "$OK" = 1 ] || warn "存在校验项失败，请查看上面输出"
 fi
+# 校验没过就不能继续往下报"部署完成"，否则安装失败会被误判成成功
+if [ "$DRY_RUN" = 0 ] && [ "$OK" != 1 ]; then
+  echo "❌ 部署校验失败，请检查上方错误" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------- 收尾
 echo
 echo "==> 收尾（在 Operit 内操作）："
 echo "  1. 重启 MCP: operit_editor:restart_mcp_with_logs → 预期全部 success"
-echo "  2. 验证:     ping_mcp(playwright_mcp) → 应列出 25 个 browser_* 工具"
+echo "  2. 验证:     ping_mcp(playwrightmcp) → 应列出 25 个 browser_* 工具"
 echo "  3. 冒烟:     browser_navigate('https://www.baidu.com')"
 echo ""
 echo "  ℹ️  首次启动若缺依赖/Chromium，会自动补齐（日志：$RUN_DIR/bootstrap.log）"

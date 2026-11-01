@@ -10,3 +10,7 @@ pw_*.png
 # 编辑器
 .idea/
 .vscode/
+
+# Python 缓存
+__pycache__/
+*.pyc

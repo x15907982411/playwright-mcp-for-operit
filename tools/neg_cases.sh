@@ -68,7 +68,7 @@ echo
 
 echo "③ 未被调用的探针函数里做动态读取（期望 WARN 1）"
 reset_copy
-python3 - "$T/repo/scripts/playwright_mcp.py" <<'PY'
+python3 - "$T/repo/scripts/playwrightmcp.py" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
@@ -95,7 +95,7 @@ echo
 
 echo "⑤ docstring 里变量名被改成 ..._X（期望 FAIL 1）"
 reset_copy
-python3 - "$T/repo/scripts/playwright_mcp.py" <<'PY'
+python3 - "$T/repo/scripts/playwrightmcp.py" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
@@ -112,14 +112,14 @@ echo
 
 echo "⑥ install chromium 旧命令复活（期望 FAIL 1）"
 reset_copy
-echo 'CMD = "install chromium"' >> "$T/repo/scripts/playwright_mcp.py"
+echo 'CMD = "install chromium"' >> "$T/repo/scripts/playwrightmcp.py"
 report "旧命令复活" 1 0
 echo
 
 # ⑦ 的 WARN 1 = 新变量名未同步到 test_find_chrome.py 的 ENV_KEYS（跨文件契约漂移）
 echo "⑦ 代码里的环境变量名与 docstring 对不上（期望 FAIL 2 · WARN 1）"
 reset_copy
-python3 - "$T/repo/scripts/playwright_mcp.py" <<'PY'
+python3 - "$T/repo/scripts/playwrightmcp.py" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p, encoding="utf-8").read()
