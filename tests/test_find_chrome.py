@@ -58,8 +58,11 @@ class FindChromeTest(unittest.TestCase):
             directory = os.path.join(cls.tmp, f"chromium-{build}", "chrome-linux")
             os.makedirs(directory, exist_ok=True)
             # 转发器会过滤 <=1MB 的残缺文件，所以造 2MB 假的 chrome
-            with open(os.path.join(directory, "chrome"), "wb") as fh:
+            fake = os.path.join(directory, "chrome")
+            with open(fake, "wb") as fh:
                 fh.write(b"\0" * (2 * 1024 * 1024))
+            # 转发器会跳过没有执行位的候选，测试夹具必须跟真实环境一致
+            os.chmod(fake, 0o755)
         cls.backup = {k: os.environ.get(k) for k in ENV_KEYS}
         # 环境基线统一由 setUp 逐 case 设置（此处不再重复设置）
 
@@ -105,6 +108,33 @@ class FindChromeTest(unittest.TestCase):
         """非法值 → _int_env 告警并回退默认 1237。"""
         got = self._find_chrome(PW_MCP_PREFERRED_BUILD="abc")
         self.assertEqual(build_name(got), "chromium-1237", f"got={got}")
+
+    def test_chrome_build_resolves_symlink(self):
+        """符号链接 chromium-1237 -> chromium-1300 时必须报 1300，不能被目录名骗过。"""
+        link_root = tempfile.mkdtemp(prefix="pw-mcp-link-")
+        self.addCleanup(shutil.rmtree, link_root, True)
+        d = os.path.join(link_root, "chromium-1237", "chrome-linux")
+        os.makedirs(d, exist_ok=True)
+        real = os.path.join(self.tmp, "chromium-1300", "chrome-linux", "chrome")
+        link = os.path.join(d, "chrome")
+        os.symlink(real, link)
+        mod = load_forwarder()
+        self.assertEqual(mod._chrome_build(link), 1300, "应解析真实路径后再取 build")
+
+    def test_non_executable_chrome_is_skipped(self):
+        """缓存里的 chrome 没有执行位 → 应被跳过，不选它。"""
+        target = os.path.join(self.tmp, "chromium-1237", "chrome-linux", "chrome")
+        os.chmod(target, 0o644)
+        self.addCleanup(os.chmod, target, 0o755)
+        got = self._find_chrome(PW_MCP_PREFERRED_BUILD=None)
+        self.assertNotEqual(build_name(got), "chromium-1237", f"不可执行的 1237 不应入选，got={got}")
+
+    def test_bad_build_threshold_detected(self):
+        """坏 build（>= KNOWN_BAD_BUILD_MIN）能被 _chrome_build 正确识别。"""
+        mod = load_forwarder()
+        p = os.path.join(self.tmp, "chromium-1300", "chrome-linux", "chrome")
+        self.assertEqual(mod._chrome_build(p), 1300)
+        self.assertGreaterEqual(1300, mod.KNOWN_BAD_BUILD_MIN)
 
 
 if __name__ == "__main__":

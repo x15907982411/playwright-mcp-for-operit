@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright MCP for Operit —— 自举转发器 (v1.0.9)
+Playwright MCP for Operit —— 自举转发器 (v1.1.0)
 
 设计目标：无论从 Operit 市场（自动 npm install）还是手动解压安装，
 首次启动都能自己把依赖补齐，做到真正的「装完即用」。
@@ -21,7 +21,7 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.9)
 环境变量（均可选）：
   NODE_BIN                 指定 node 可执行文件
   PLAYWRIGHT_CHROME_BIN    指定 Chromium 可执行文件
-  PW_MCP_VER               MCP 版本，默认 0.0.84
+  PW_MCP_VER               MCP 版本，默认 0.0.85
   PW_MCP_MIN_BUILD         期望的 chromium build 下限，默认 1237（低于此值仅告警不报错）
   PW_MCP_PREFERRED_BUILD   多个 build 并存时优先选用，默认 1237；设 0 关闭偏好
                            （proot 下 rev1246+ 启动即 SIGTRAP，见 docs/TROUBLESHOOTING.md 问题 13）
@@ -29,7 +29,7 @@ Playwright MCP for Operit —— 自举转发器 (v1.0.9)
   PW_MCP_AUTO_INSTALL      0 = 不自动安装 MCP 包
   PW_MCP_AUTO_DOWNLOAD     0 = 不自动下载 Chromium
   PW_MCP_LOG_MAX           日志轮转阈值（字节），默认 1048576（1MB），超限转 bootstrap.log.1
-  PLAYWRIGHT_BROWSERS_PATH 额外的浏览器搜索目录（Playwright 标准变量）
+  PLAYWRIGHT_BROWSERS_PATH 显式设置时只搜该目录，不回退默认路径（Playwright 标准变量）
   PLAYWRIGHT_DOWNLOAD_HOST 浏览器下载源（Playwright 标准变量；国内可换镜像）
   PW_MCP_NPM_REGISTRY      指定 npm registry（例如国内镜像）
   PW_MCP_EXTRA_ARGS        追加给 MCP server 的参数，空格分隔
@@ -64,7 +64,7 @@ def _int_env(name: str, default: int) -> int:
 
 
 MCP_PKG = "@playwright/mcp"
-MCP_VER = os.environ.get("PW_MCP_VER", "0.0.84")
+MCP_VER = os.environ.get("PW_MCP_VER", "0.0.85")
 MIN_CHROMIUM_BUILD = _int_env("PW_MCP_MIN_BUILD", 1237)
 # 已知可用 build：proot 环境下 rev1246+（CFT 154.x）启动即 SIGTRAP，
 # 而 1237 在旧/新驱动下均实测完全兼容。多个 build 并存时优先选它，
@@ -140,8 +140,8 @@ def find_node() -> str | None:
             if major is None:
                 log(f"跳过 {cand}（无法解析版本）", "WARN")
                 continue
-            if major < 18:
-                log(f"跳过 {cand}（node {major} < 18，不满足要求）", "WARN")
+            if major < 20:
+                log(f"跳过 {cand}（node {major} < 20，不满足要求）", "WARN")
                 continue
             return cand
     return None
@@ -177,7 +177,7 @@ def run(cmd: list[str], timeout: int = 900, env: dict | None = None,
 
 
 def npm_registry_args() -> list[str]:
-    # 默认用官方源：0.0.84 依赖 playwright-core@1.65.0-alpha-*（alpha），
+    # 默认用官方源：0.0.85 依赖 playwright-core@1.66.0-alpha-*（alpha），
     # 国内镜像 npmmirror 可能未同步 -> ETARGET。如需镜像，设 PW_MCP_NPM_REGISTRY。
     registry = os.environ.get("PW_MCP_NPM_REGISTRY") or "https://registry.npmjs.org"
     return ["--registry", registry]
@@ -289,6 +289,10 @@ def install_mcp(node: str) -> str | None:
 
 def _chrome_build(path: str) -> int:
     """从路径中提取 chromium build 号（如 chromium-1237），失败返回 0。"""
+    try:
+        path = os.path.realpath(path)
+    except Exception:  # noqa: BLE001
+        pass
     parts = path.replace("\\", "/").split("/")
     for part in parts:
         if part.startswith("chromium-"):
@@ -305,11 +309,20 @@ def find_chrome() -> str | None:
 
     pref = PREFERRED_BUILD
     best: tuple[int, str] | None = None
-    bases = [
-        os.path.expanduser("~/.cache/ms-playwright"),
-        "/root/.cache/ms-playwright",
-        os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""),
-    ]
+    # PLAYWRIGHT_BROWSERS_PATH 是 Playwright 的标准环境变量，显式设置时应独占优先：
+    # 用户指定了目录却仍去扫默认路径，会选到「不在预期位置」的浏览器，也让测试不可控。
+    env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or ""
+    if env_path:
+        # 显式指定了就只认这个目录：即使目录不存在也不回退到默认路径，
+        # 否则「指定了却没生效」会被静默掩盖，排查时极难定位。
+        if not os.path.isdir(env_path):
+            log(f"PLAYWRIGHT_BROWSERS_PATH={env_path} 不存在或不是目录，不会回退到默认路径", "WARN")
+        bases = [env_path]
+    else:
+        bases = [
+            os.path.expanduser("~/.cache/ms-playwright"),
+            "/root/.cache/ms-playwright",
+        ]
     for base in bases:
         if not base or not os.path.isdir(base):
             continue
@@ -322,6 +335,9 @@ def find_chrome() -> str | None:
                 full = os.path.join(dirpath, name)
                 try:
                     if os.path.getsize(full) <= 1024 * 1024:  # 过滤残缺/空文件
+                        continue
+                    # 没有执行权限的 chrome 选了也起不来（缓存里的残缺/降权文件）
+                    if not os.access(full, os.X_OK):
                         continue
                 except OSError:
                     continue
@@ -344,7 +360,7 @@ def download_chrome(node: str, cli: str) -> str | None:
     if host:
         env["PLAYWRIGHT_DOWNLOAD_HOST"] = host
     try:
-        # install-browser 才是 @playwright/mcp 0.0.84 的浏览器安装入口
+        # install-browser 才是 @playwright/mcp 0.0.85 的浏览器安装入口
         # （cli.js 内部再映射为下游的 install）；直接传 "install chromium"
         # 会被顶层解析器拒绝：too many arguments. Expected 0 arguments but got 2
         proc = run([node, cli, "install-browser", "chromium"], timeout=1800, env=env)
@@ -367,7 +383,7 @@ def main() -> None:
     node = find_node()
     if not node:
         die(
-            "未找到 node（需要 Node.js ≥ 18）",
+            "未找到 node（需要 Node.js ≥ 20）",
             "请在 proot/终端安装：apt install -y nodejs npm（或使用 NODE_BIN 环境变量指定路径）",
         )
     log(f"node = {node}")

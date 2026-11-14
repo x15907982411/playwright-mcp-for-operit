@@ -157,6 +157,14 @@ else:
         ok("README 下载文件名一致")
     else:
         fail(f"README 下载文件名未指向 v{ver}")
+    # 检查 README 里所有「playwright-mcp-for-operit-vX.Y.Z」形式的引用（.zip / 目录名 / cd 命令）。
+    # v1.1.0 发现：只查 `.zip` 会漏掉解压后的目录名（`cd ...-v1.0.9`），用户照着敲会失败。
+    ref_vers = set(re.findall(r"playwright-mcp-for-operit-v(\d+\.\d+\.\d+)", rm))
+    stale_refs = sorted(v for v in ref_vers if v != ver)
+    if stale_refs:
+        fail("README 出现过期版本化路径：" + ", ".join("v" + v for v in stale_refs) + f"（期望 v{ver}）")
+    else:
+        ok(f"README 版本化路径一致（检查 {len(ref_vers)} 个不同版本号）")
 
     mk = read("market/README.md")
     if mk:

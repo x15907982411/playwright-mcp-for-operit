@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Playwright MCP for Operit - 一键部署脚本 (v1.0.9)
+# Playwright MCP for Operit - 一键部署脚本 (v1.1.0)
 #
 # 用法:
 #   bash install.sh                 # 默认：依赖装到 Linux 运行目录（推荐）
@@ -10,7 +10,7 @@
 #   bash install.sh --keep-deps     # 重跑时保留已有 node_modules（不重装依赖）
 #   bash install.sh --help          # 显示本帮助
 #
-# 适用环境: Android + proot(Ubuntu) / Termux + node>=18 + Operit
+# 适用环境: Android + proot(Ubuntu) / Termux + node>=20 + Operit
 #   非 Operit 用户请勿使用（配置合并路径与 Operit 深度耦合）
 #   推荐在 proot 环境执行（Termux 与 proot 的 ~/.cache 不互通，双环境会重复下载）
 #
@@ -41,8 +41,8 @@
 set -eu
 
 MCP_ID="playwrightmcp"
-MCP_VER="0.0.84"          # 上游 @playwright/mcp 版本
-PLUGIN_VER="1.0.9"       # 本插件自身的版本（写入 pluginMetadata.version）
+MCP_VER="0.0.85"          # 上游 @playwright/mcp 版本
+PLUGIN_VER="1.1.0"       # 本插件自身的版本（写入 pluginMetadata.version）
 OPERIT_DATA_DIR="${OPERIT_DATA_DIR:-/sdcard/Download/Operit}"
 LINUX_RUN_DIR="${LINUX_RUN_DIR:-$HOME/mcp_plugins}"
 INSTALL_MODE="${PW_MCP_INSTALL_MODE:-local}"
@@ -53,8 +53,28 @@ REPO_SLUG="x15907982411/playwright-mcp-for-operit"
 
 SEG_FILE=""
 ANDROID_DIR=""
-cleanup() { [ -n "$SEG_FILE" ] && rm -f "$SEG_FILE" 2>/dev/null || true; }
+MAIN_CFG="$OPERIT_DATA_DIR/mcp_plugins/mcp_config.json"
+# 部署中断保护：deploy_run_dir 在「旧目录已改名、新目录还未上位」之间有个窗口，
+# 若此时进程被 Ctrl+C / SIGTERM 杀掉，正式目录会消失、旧目录卡在 .bak。
+# 这里在退出时把备份还原回去。
+DEPLOY_BACKUP=""
+DEPLOY_DST=""
+cleanup() {
+  _rc=$?
+  if [ -n "$DEPLOY_BACKUP" ] && [ -d "$DEPLOY_BACKUP" ] && [ ! -d "$DEPLOY_DST" ]; then
+    echo "[恢复] 部署中断，正在还原旧运行目录……" >&2
+    if mv "$DEPLOY_BACKUP" "$DEPLOY_DST"; then
+      echo "[恢复] 已还原到 $DEPLOY_DST" >&2
+    else
+      echo "[恢复] 还原失败！旧目录仍在 $DEPLOY_BACKUP" >&2
+    fi
+  fi
+  [ -n "$SEG_FILE" ] && rm -f "$SEG_FILE" 2>/dev/null || true
+  return $_rc
+}
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 usage() {
   # 动态输出文件头部注释块（第 3 行起，遇到分隔线停止），避免行号硬编码失效
@@ -79,22 +99,195 @@ esac
 
 log()  { echo "$*"; }
 warn() { echo "⚠️  $*" >&2; }
+
+# ---------------------------------------------------------------- keep-deps 文件提交
+# 三阶段提交：①写临时名 ②备份旧文件 ③逐个 mv，任一失败回滚。
+# 封成函数是为了能让 tests/test_keepdeps_rollback.sh 单独 source 测试。
+commit_keepdeps_files() {
+  local _src="$1"
+  local _dst="$2"
+  local _f _g _done _stage_ok _bak_ok _commit_ok _absent _rb_failed _rb_missing _rb_delfailed
+  local _kdp_files="playwrightmcp.py requirements.txt package.json"
+
+  _stage_ok=1
+  for _f in $_kdp_files; do
+    if [ -f "$_src/$_f" ]; then
+      if ! cp "$_src/$_f" "$_dst/$_f.tmp.$$"; then
+        _stage_ok=0
+        break
+      fi
+    fi
+  done
+  if [ "$_stage_ok" != 1 ]; then
+    for _f in $_kdp_files; do
+      rm -f "$_dst/$_f.tmp.$$"
+    done
+    echo "❌ --keep-deps：新文件写入临时位置失败，本次升级中止（正式文件未动）" >&2
+    echo "   node_modules / venv 未受影响；可重跑一次，或去掉 --keep-deps 走完整安装" >&2
+    exit 1
+  fi
+
+  # 备份阶段同时记录「升级前不存在」的文件——回滚时这类文件要被删掉，
+  # 而不是去找根本不存在的 .old 备份。
+  _bak_ok=1
+  _absent=""
+  for _f in $_kdp_files; do
+    if [ -f "$_dst/$_f" ]; then
+      if ! cp -p "$_dst/$_f" "$_dst/$_f.old.$$"; then
+        _bak_ok=0
+        break
+      fi
+    else
+      _absent="$_absent $_f"
+    fi
+  done
+  if [ "$_bak_ok" != 1 ]; then
+    for _f in $_kdp_files; do
+      rm -f "$_dst/$_f.tmp.$$" "$_dst/$_f.old.$$"
+    done
+    echo "❌ --keep-deps：备份现有文件失败，本次升级中止（正式文件未动）" >&2
+    exit 1
+  fi
+
+  _done=""
+  _commit_ok=1
+  for _f in $_kdp_files; do
+    [ -f "$_dst/$_f.tmp.$$" ] || continue
+    if mv "$_dst/$_f.tmp.$$" "$_dst/$_f"; then
+      _done="$_done $_f"
+    else
+      _commit_ok=0
+      break
+    fi
+  done
+
+  if [ "$_commit_ok" != 1 ]; then
+    # 回滚：逐个恢复，逐个检查结果。
+    # 关键：只要恢复没全部成功，就绝不能删 .old 备份——那是唯一的恢复凭据。
+    _rb_failed=""
+    _rb_missing=""
+    _rb_delfailed=""
+    for _g in $_done; do
+      if [ -f "$_dst/$_g.old.$$" ]; then
+        if ! mv "$_dst/$_g.old.$$" "$_dst/$_g"; then
+          _rb_failed="$_rb_failed $_g"
+        fi
+      else
+        # 没有 .old：看它在升级前是否存在
+        case " $_absent " in
+          *" $_g "*)
+            # 升级前不存在 → 删掉本次新建的文件
+            if ! rm -f "$_dst/$_g"; then
+              _rb_delfailed="$_rb_delfailed $_g"
+            fi
+            ;;
+          *)
+            _rb_missing="$_rb_missing $_g"
+            ;;
+        esac
+      fi
+    done
+    # 临时文件总是可以清；.old 只在全部恢复成功后清
+    for _f in $_kdp_files; do
+      rm -f "$_dst/$_f.tmp.$$"
+    done
+    if [ -n "$_rb_failed" ] || [ -n "$_rb_missing" ] || [ -n "$_rb_delfailed" ]; then
+      echo "❌❌ --keep-deps：替换失败，且回滚未完成！" >&2
+      [ -n "$_rb_failed" ] && echo "   恢复失败：${_rb_failed}" >&2
+      [ -n "$_rb_missing" ] && echo "   找不到备份：${_rb_missing}" >&2
+      [ -n "$_rb_delfailed" ] && echo "   删除新建文件失败：${_rb_delfailed}" >&2
+      echo "   旧文件备份已保留，目录：$_dst" >&2
+      echo "   文件名后缀为 .old.$$，请手动恢复或确认后再重跑" >&2
+    else
+      for _f in $_kdp_files; do
+        rm -f "$_dst/$_f.old.$$"
+      done
+      echo "❌ --keep-deps：替换文件失败，已回滚到升级前状态" >&2
+      echo "   （已替换的 ${_done:-无} 已还原；node_modules / venv 未受影响）" >&2
+    fi
+    exit 1
+  fi
+
+  for _f in $_kdp_files; do
+    rm -f "$_dst/$_f.old.$$"
+  done
+  log "    i  --keep-deps：已保留 $_dst（node_modules / venv 未动）"
+}
 step() { echo; echo "==> $*"; }
 
-# 默认使用官方源：0.0.84 依赖 playwright-core@1.65.0-alpha-*（alpha 版本），
+# ---------------------------------------------------------------- 事务性部署
+deploy_run_dir() {
+  # 先把 Android 源目录复制到同级 staging，校验通过后再原子换掉运行目录。
+  # 避免「先 rm -rf 再 cp」在复制中途失败（磁盘满 / 权限 / 中断）时毁掉可用安装。
+  _src="$1"
+  _dst="$2"
+  _staging="$_dst.staging.$$"
+  _backup="$_dst.bak.$$"
+  mkdir -p "$LINUX_RUN_DIR"
+  rm -rf "$_staging"
+  if ! cp -r "$_src" "$_staging"; then
+    rm -rf "$_staging"
+    echo "❌ 复制到临时目录失败（磁盘空间/权限？），旧安装未受影响" >&2
+    exit 1
+  fi
+  # 部署校验：关键文件必须在
+  if [ ! -f "$_staging/playwrightmcp.py" ] || [ ! -f "$_staging/package.json" ]; then
+    rm -rf "$_staging"
+    echo "❌ 部署校验失败（缺少 playwrightmcp.py 或 package.json），旧安装未受影响" >&2
+    exit 1
+  fi
+  # 旧目录改名为备份（同目录内 mv 是原子的）
+  if [ -d "$_dst" ]; then
+    DEPLOY_BACKUP="$_backup"
+    DEPLOY_DST="$_dst"
+    if ! mv "$_dst" "$_backup"; then
+      DEPLOY_BACKUP=""
+      DEPLOY_DST=""
+      rm -rf "$_staging"
+      echo "❌ 无法备份旧运行目录，旧安装未受影响" >&2
+      exit 1
+    fi
+  fi
+  # 原子上位
+  if ! mv "$_staging" "$_dst"; then
+    rm -rf "$_staging"
+    if [ -d "$_backup" ]; then
+      if mv "$_backup" "$_dst"; then
+        echo "❌ 启用新目录失败，已回滚到旧安装" >&2
+      else
+        echo "❌❌ 启用新目录失败，且自动回滚也失败！" >&2
+        echo "    旧安装仍完整保存在：$_backup" >&2
+        echo "    请手动执行：mv "$_backup" "$_dst"" >&2
+      fi
+    else
+      echo "❌ 启用新目录失败（无备份可回滚）" >&2
+    fi
+    exit 1
+  fi
+  rm -rf "$_backup"
+  DEPLOY_BACKUP=""
+  DEPLOY_DST=""
+  return 0
+}
+
+# 默认使用官方源：0.0.85 依赖 playwright-core@1.66.0-alpha-*（alpha 版本），
 # 国内镜像 registry.npmmirror.com 可能尚未同步 → 会报 ETARGET。
 # 如需镜像，显式设置 PW_MCP_NPM_REGISTRY=https://registry.npmmirror.com
 NPM_REG_ARGS=(--registry "${PW_MCP_NPM_REGISTRY:-https://registry.npmjs.org}")
 
 # ---------------------------------------------------------------- 1. 环境检查
 step "[1/6] 环境检查"
-command -v node >/dev/null 2>&1 || { echo "❌ node 未安装（需 ≥ 18）"; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "❌ node 未安装（需 ≥ 20）"; exit 1; }
 command -v npm  >/dev/null 2>&1 || { echo "❌ npm 未安装"; exit 1; }
 NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
 case "$NODE_MAJOR" in
-  (*[!0-9]*|'') echo "❌ 无法解析 node 版本（$(node -v 2>/dev/null || echo "未知")），需 ≥18"; exit 1 ;;
+  (*[!0-9]*|'') echo "❌ 无法解析 node 版本（$(node -v 2>/dev/null || echo "未知")），需 ≥20"; exit 1 ;;
 esac
-if [ "$NODE_MAJOR" -lt 18 ]; then echo "❌ node 版本过低: $(node -v)（需 ≥18）"; exit 1; fi
+if [ "$NODE_MAJOR" -lt 20 ]; then
+  echo "❌ node 版本过低: $(node -v)（需 ≥20）"
+  echo "   原因：@playwright/mcp 0.0.85 锁定的 playwright / playwright-core 1.66.0-alpha 均声明 engines.node >= 20"
+  exit 1
+fi
 log "    node      : $(command -v node) ($(node -v))"
 log "    npm       : $(npm -v)"
 if command -v python3 >/dev/null 2>&1; then
@@ -112,6 +305,36 @@ FORWARDER_TEMPLATE="$SCRIPT_DIR/scripts/playwrightmcp.py"
 
 ANDROID_DIR="$OPERIT_DATA_DIR/mcp_plugins/$MCP_ID"
 RUN_DIR="$LINUX_RUN_DIR/$MCP_ID"
+
+# ---------------------------------------------------------------- 1.5 主配置预检
+# 在写入任何东西之前先验主配置：
+# 否则会出现「Android/Linux 目录都部署完了，才在提交阶段发现主配置是数组」的尴尬，
+# 而且报错文案写「未修改任何文件」就与事实不符。
+if [ -f "$MAIN_CFG" ] && [ "$DRY_RUN" != 1 ]; then
+  if ! node - "$MAIN_CFG" <<'NODE'
+const fs = require('fs');
+const mainPath = process.argv[2];
+let main;
+try {
+  main = JSON.parse(fs.readFileSync(mainPath, 'utf8'));
+} catch (e) {
+  console.error('❌ 主配置 JSON 解析失败（可能被手动改坏）: ' + mainPath);
+  console.error('   已中止，本次未修改任何文件。请检查该文件，或从 .bak.* 备份恢复后重跑');
+  process.exit(1);
+}
+const isPlainObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+if (!isPlainObj(main)) {
+  const kind = Array.isArray(main) ? 'array' : (main === null ? 'null' : typeof main);
+  console.error('❌ 主配置根节点必须是 JSON 对象（实际: ' + kind + '）: ' + mainPath);
+  console.error('   已中止，本次未修改任何文件。请检查该文件，或从 .bak.* 备份恢复后重跑');
+  process.exit(1);
+}
+NODE
+  then
+    exit 1
+  fi
+  log "    主配置预检通过: $MAIN_CFG"
+fi
 
 # ---------------------------------------------------------------- 2. 插件文件准备
 step "[2/6] 准备插件文件（转发器 / 依赖声明 / 标志文件）"
@@ -158,24 +381,55 @@ fi
 step "[3/6] Chromium 探测（复用优先，不阻塞）"
 find_chrome() {
   local best="" best_build=0 base found build
-  for base in "$HOME/.cache/ms-playwright" "/root/.cache/ms-playwright" "${PLAYWRIGHT_BROWSERS_PATH:-}"; do
+  local _pref="${PW_MCP_PREFERRED_BUILD:-1237}" _pref_hit="" _fallback="" _fallback_build=0
+  case "$_pref" in ''|*[!0-9]*) _pref=1237 ;; esac
+  # 与 Python 转发器的优先级保持一致：PLAYWRIGHT_CHROME_BIN > BROWSERS_PATH > 默认缓存。
+  # 之前安装器不看这个变量，会在用户显式指定浏览器时报「未发现 Chromium」并误导 ldd 检查。
+  if [ -n "${PLAYWRIGHT_CHROME_BIN:-}" ] && [ -f "$PLAYWRIGHT_CHROME_BIN" ] && [ -x "$PLAYWRIGHT_CHROME_BIN" ]; then
+    if [ "$(stat -L -c%s "$PLAYWRIGHT_CHROME_BIN" 2>/dev/null || echo 0)" -gt 1048576 ]; then
+      printf '%s' "$PLAYWRIGHT_CHROME_BIN"
+      return 0
+    fi
+  fi
+  # 与 Python 转发器保持一致：显式设置 PLAYWRIGHT_BROWSERS_PATH 就只扫该目录，
+  # 否则仍扫两个默认缓存位置。两边不一致会让「安装器报的 build」与「实际启动用的 build」对不上。
+  local -a bases=()
+  if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+    bases=("$PLAYWRIGHT_BROWSERS_PATH")
+  else
+    bases=("$HOME/.cache/ms-playwright" "/root/.cache/ms-playwright")
+  fi
+  for base in "${bases[@]}"; do
     [ -n "$base" ] && [ -d "$base" ] || continue
     while IFS= read -r found; do
       [ -n "$found" ] || continue
       build="$(printf '%s' "$found" | sed -n 's|.*chromium-\([0-9][0-9]*\).*|\1|p' | head -1 || true)"
       [ -n "$build" ] || build=0
-      if [ "$build" -gt "$best_build" ] 2>/dev/null; then
-        best_build="$build"; best="$found"
-      elif [ -z "$best" ]; then
-        best="$found"
+      # 优先命中 PW_MCP_PREFERRED_BUILD（与 Python 转发器一致），
+      # 未命中时退回「选最大 build」——仅选最大会让安装器报的 build 与实际启动用的对不上。
+      if [ "$_pref" != 0 ] && [ "$build" = "$_pref" ] 2>/dev/null; then
+        _pref_hit="$found"
+        break
+      fi
+      if [ "$build" -gt "$_fallback_build" ] 2>/dev/null; then
+        _fallback_build="$build"; _fallback="$found"
       fi
     done < <(find "$base" -maxdepth 4 -type f -name chrome -path '*chrome-linux*' -size +1M -executable 2>/dev/null || true)
+    [ -n "$_pref_hit" ] && break
   done
+  if [ -n "$_pref_hit" ]; then
+    best="$_pref_hit"; best_build="$_pref"
+  elif [ -n "$_fallback" ]; then
+    best="$_fallback"; best_build="$_fallback_build"
+  fi
   [ -n "$best" ] && printf '%s' "$best"
 }
 CHROME_BIN="$(find_chrome || true)"
 if [ -n "$CHROME_BIN" ]; then
-  CHROME_BUILD="$(printf '%s' "$CHROME_BIN" | sed -n 's|.*chromium-\([0-9][0-9]*\).*|\1|p' | head -1 || true)"
+  # build 用真实路径提取：符号链接 chromium-1237/... -> chromium-1300/... 时
+  # 直接看路径会把 1300 误报成 1237。
+  CHROME_REAL="$(realpath "$CHROME_BIN" 2>/dev/null || printf '%s' "$CHROME_BIN")"
+  CHROME_BUILD="$(printf '%s' "$CHROME_REAL" | sed -n 's|.*chromium-\([0-9][0-9]*\).*|\1|p' | head -1 || true)"
   log "    ✅ 复用已有 Chromium：$CHROME_BIN（build=${CHROME_BUILD:-未知}）"
   if [ -n "$CHROME_BUILD" ] && [ "$CHROME_BUILD" -lt 1237 ] 2>/dev/null; then
     warn "build=${CHROME_BUILD} 低于期望下限 1237；1237 在旧/新驱动下实测完全兼容，保持现状即可"
@@ -247,13 +501,47 @@ log "    ✅ 配置片段已生成"
 
 # ---------------------------------------------------------------- 5. 双路径部署
 step "[5/6] 双路径部署（Android 源目录 + Linux 运行目录）"
-MAIN_CFG="$OPERIT_DATA_DIR/mcp_plugins/mcp_config.json"
 if [ "$DRY_RUN" = 1 ]; then
   log "    [dry-run] 跳过写文件"
 else
   node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));fs.writeFileSync(process.argv[2],JSON.stringify({mcpServers:s.mcpServers},null,2)+'\\n');" \
     "$SEG_FILE" "$ANDROID_DIR/mcp.config.json"
 
+  # 旧版目录（1.0.8 及更早装的）不自动删，只提示一句
+  if [ -d "$LINUX_RUN_DIR/playwright_mcp" ]; then
+    warn "检测到旧版运行目录 $LINUX_RUN_DIR/playwright_mcp，新版用的是 playwrightmcp"
+    warn "旧目录已经不会被加载，确认无用后可手动删除"
+  fi
+  mkdir -p "$LINUX_RUN_DIR"
+  if [ "$KEEP_DEPS" = 1 ] && [ -d "$RUN_DIR" ]; then
+    # 先看现有依赖实际是什么版本。版本对不上还硬保留，转发器启动时的版本校验
+    # 又会把包重装一遍，白白多绕一圈，不如当场挑明
+    _old_ver=""
+    if [ -f "$RUN_DIR/node_modules/@playwright/mcp/package.json" ]; then
+      _old_ver="$(node -p "require('$RUN_DIR/node_modules/@playwright/mcp/package.json').version" 2>/dev/null || true)"
+    fi
+    if [ "$_old_ver" = "$MCP_VER" ]; then
+      KEEP_DEPS_EFFECTIVE=1
+      # --keep-deps：不重建目录，只覆盖脚本文件，完整保留 node_modules / venv
+      # 三阶段提交，任何一步失败都回到「升级前」的状态：
+      #   ① 新文件全部写临时名（此时正式文件未动）
+      #   ② 现有正式文件备份成 .old（此时正式文件仍未动）
+      #   ③ 逐个 mv 上位；任一失败则用 .old 回滚已替换项
+      # 只做①②不做③的回滚，会在 mv 阶段留下一半新一半旧的混合目录。
+      commit_keepdeps_files "$ANDROID_DIR" "$RUN_DIR"
+    else
+      warn "现有依赖版本 ${_old_ver:-未安装} 与目标 $MCP_VER 不一致，跳过保留"
+      warn "改为常规安装（重新安装依赖）"
+      deploy_run_dir "$ANDROID_DIR" "$RUN_DIR"
+    fi
+  else
+    deploy_run_dir "$ANDROID_DIR" "$RUN_DIR"
+  fi
+  log "    ✅ $ANDROID_DIR"
+  log "    ✅ $RUN_DIR"
+
+  # 主配置在运行目录部署成功之后才提交（一旦部署失败，配置不会被提前改掉）
+  # ---- 提交主配置 ----
   if [ -f "$MAIN_CFG" ]; then
     BAK_FILE="$MAIN_CFG.bak.$(date +%s).$$"
     if cp "$MAIN_CFG" "$BAK_FILE"; then
@@ -279,6 +567,14 @@ if (fs.existsSync(mainPath)) {
   }
 }
 const isPlainObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+// 根节点必须是对象：JSON 数组可以挂命名属性，但 JSON.stringify 不会序列化它们，
+// 结果就是「报合并成功、实际什么都没写进去」。发现非对象直接中止，不静默重置。
+if (!isPlainObj(main)) {
+  const kind = Array.isArray(main) ? 'array' : (main === null ? 'null' : typeof main);
+  console.error('❌ 主配置根节点必须是 JSON 对象（实际: ' + kind + '）: ' + mainPath);
+  console.error('   已中止，主配置未被修改（插件目录可能已更新）。请检查该文件，或从 .bak.* 备份恢复后重跑');
+  process.exit(1);
+}
 if (!isPlainObj(main.mcpServers)) {
   if (main.mcpServers !== undefined) {
     console.error('⚠️  main.mcpServers 不是对象（实际: ' + typeof main.mcpServers + '），已重置为空对象');
@@ -314,38 +610,6 @@ fs.renameSync(tmpPath, mainPath);
 console.log('    ✅ 已合并进 ' + mainPath);
 NODE
 
-  # 旧版目录（1.0.8 及更早装的）不自动删，只提示一句
-  if [ -d "$LINUX_RUN_DIR/playwright_mcp" ]; then
-    warn "检测到旧版运行目录 $LINUX_RUN_DIR/playwright_mcp，新版用的是 playwrightmcp"
-    warn "旧目录已经不会被加载，确认无用后可手动删除"
-  fi
-  mkdir -p "$LINUX_RUN_DIR"
-  if [ "$KEEP_DEPS" = 1 ] && [ -d "$RUN_DIR" ]; then
-    # 先看现有依赖实际是什么版本。版本对不上还硬保留，转发器启动时的版本校验
-    # 又会把包重装一遍，白白多绕一圈，不如当场挑明
-    _old_ver=""
-    if [ -f "$RUN_DIR/node_modules/@playwright/mcp/package.json" ]; then
-      _old_ver="$(node -p "require('$RUN_DIR/node_modules/@playwright/mcp/package.json').version" 2>/dev/null || true)"
-    fi
-    if [ "$_old_ver" = "$MCP_VER" ]; then
-      KEEP_DEPS_EFFECTIVE=1
-      # --keep-deps：不重建目录，只覆盖脚本文件，完整保留 node_modules / venv
-      for _f in playwrightmcp.py requirements.txt package.json; do
-        if [ -f "$ANDROID_DIR/$_f" ]; then cp "$ANDROID_DIR/$_f" "$RUN_DIR/$_f"; fi
-      done
-      log "    i  --keep-deps：已保留 $RUN_DIR（node_modules / venv 未动）"
-    else
-      warn "现有依赖版本 ${_old_ver:-未安装} 与目标 $MCP_VER 不一致，跳过保留"
-      warn "改为常规安装（重新安装依赖）"
-      rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
-      cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
-    fi
-  else
-    rm -rf "${LINUX_RUN_DIR:?}/$MCP_ID"
-    cp -r "$ANDROID_DIR" "$LINUX_RUN_DIR/"
-  fi
-  log "    ✅ $ANDROID_DIR"
-  log "    ✅ $RUN_DIR"
 fi
 
 # ---------------------------------------------------------------- 5.5 依赖安装
@@ -371,7 +635,7 @@ elif [ "$INSTALL_MODE" != "skip" ] && [ "$DRY_RUN" = 0 ]; then
       log "    ✅ 依赖已安装（启动时无需再下载）"
     else
       warn "npm install 失败，将由转发器首次启动时重试"
-      warn "   注意: 0.0.84 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
+      warn "   注意: 0.0.85 的 alpha 依赖需官方源 https://registry.npmjs.org（国内镜像可能报 ETARGET）"
       tail -5 /tmp/pw_npm.log 2>/dev/null || true
     fi
   fi
@@ -438,7 +702,7 @@ echo ""
 echo "  ℹ️  首次启动若缺依赖/Chromium，会自动补齐（日志：$RUN_DIR/bootstrap.log）"
 echo "  🗑  卸载：bash uninstall.sh"
 if [ "$DRY_RUN" = 1 ]; then
-  echo "✅ 检查完成（dry-run：未写入任何文件）"
+  echo "✅ 检查完成（dry-run：未修改正式安装目录与主配置；临时文件已清理）"
 else
   echo "✅ 部署完成"
 fi

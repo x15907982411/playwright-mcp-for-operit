@@ -1,14 +1,11 @@
 name: Issue Notify
-
 on:
   issues:
     types: [opened]
   issue_comment:
     types: [created]
-
 permissions:
   contents: read
-
 jobs:
   notify:
     runs-on: ubuntu-latest
@@ -16,29 +13,49 @@ jobs:
     steps:
       - name: 组装通知内容
         id: msg
+        env:
+          # 所有事件字段一律经 env 传入，绝不把 ${{ }} 直接嵌进 run: 脚本。
+          # Issue 标题/正文/评论都是外部用户可控制的，直接插进 shell 等于给攻击者
+          # 提供任意命令执行（GitHub 官方把 github.event.* 列为不可信输入）。
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_USER: ${{ github.event.issue.user.login }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+          COMMENT_USER: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          if [ "${{ github.event_name }}" = "issues" ]; then
-            echo "EVENT=新 Issue 提交" >> $GITHUB_OUTPUT
-            echo "WHO=${{ github.event.issue.user.login }}" >> $GITHUB_OUTPUT
-            echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
-            echo "URL=${{ github.event.issue.html_url }}" >> $GITHUB_OUTPUT
-            {
-              echo "BODY<<EOF"
-              echo "${{ github.event.issue.body }}"
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
-          else
-            echo "EVENT=Issue 收到新评论" >> $GITHUB_OUTPUT
-            echo "WHO=${{ github.event.comment.user.login }}" >> $GITHUB_OUTPUT
-            echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_OUTPUT
-            echo "URL=${{ github.event.comment.html_url }}" >> $GITHUB_OUTPUT
-            {
-              echo "BODY<<EOF"
-              echo "${{ github.event.comment.body }}"
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
-          fi
+          # 标题可能含换行，先压成单行，避免破坏 GITHUB_OUTPUT 的 KEY=VALUE 结构
+          title_one_line=$(printf '%s' "${ISSUE_TITLE:-}" | tr '\n\r' '  ')
+          # 多行正文用随机 delimiter，防止正文里恰好出现 EOF 提前闭合
+          delim="PWEOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 
+          if [ "$EVENT_NAME" = "issues" ]; then
+            {
+              echo "EVENT=新 Issue 提交"
+              echo "WHO=${ISSUE_USER:-}"
+              echo "TITLE=${title_one_line}"
+              echo "URL=${ISSUE_URL:-}"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "BODY<<${delim}"
+              printf '%s\n' "${ISSUE_BODY:-}"
+              echo "${delim}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "EVENT=Issue 收到新评论"
+              echo "WHO=${COMMENT_USER:-}"
+              echo "TITLE=${title_one_line}"
+              echo "URL=${COMMENT_URL:-}"
+            } >> "$GITHUB_OUTPUT"
+            {
+              echo "BODY<<${delim}"
+              printf '%s\n' "${COMMENT_BODY:-}"
+              echo "${delim}"
+            } >> "$GITHUB_OUTPUT"
+          fi
       - name: 发邮件通知
         uses: dawidd6/action-send-mail@v3
         with:

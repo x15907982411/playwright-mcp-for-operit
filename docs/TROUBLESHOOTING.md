@@ -19,6 +19,7 @@
 | MCP 启动成功但浏览器报错 | [问题 10](#问题-10mcp-启动成功但浏览器报错) |
 | npm install 报 ETARGET（alpha 依赖找不到） | [问题 12](#问题-12npm-install-报-etarget) |
 | 工具数是 25 不是旧文档说的 24 | [问题 11](#问题-11ping_mcp-显示-25-个工具旧文档说-24) |
+| 插件启用了但 MCP 不响应 / 握手超时 | [问题 14](#mcp-not-responding) |
 
 ---
 
@@ -99,10 +100,13 @@ find ~/.cache/ms-playwright -maxdepth 4 -type f -name chrome -path '*chrome-linu
 export PLAYWRIGHT_CHROME_BIN=/root/.cache/ms-playwright/chromium-1237/chrome-linux/chrome
 ```
 
-> **实测（2026-09-19）**：`chromium-1237` 在旧驱动（1.63-alpha）与**新版驱动 `1.65.0-alpha-*` 下均完全兼容**（CDP 向后兼容；实测 0.0.82 启动正常、导航成功）。
-> 结论：**优先复用本机已有 Chromium，不要盲目下载。**
+> **实测（2026-09-19，旧驱动）**：`chromium-1237` 在 `playwright-core 1.63/1.64-alpha` 下完全兼容（CDP 向后兼容；实测 0.0.82 启动正常、导航成功）。
 >
-> ⚠️ 补充（2026-09-23）：**新版反而会崩** —— rev1246+（CFT 154.x）在 proot 下启动即 SIGTRAP，详见 [问题 13](#chromium-sigtrap)。
+> ⚠️ **但新版反而会崩（2026-09-23 实测）**：rev1246+（CFT 154.x）在 proot 下启动即 SIGTRAP，详见 [问题 13](#chromium-sigtrap)。所以「复用本机 Chromium」时要用的始终是 **1237**，不是最新版。
+>
+> **实测（2026-11-14，新驱动）**：`chromium-1237` 与 `playwright-core 1.66.0-alpha-2026-11-09` 交叉验证通过——API 直测 launch / 截图 / 执行 JS / 点击全通，真实 MCP 协议 initialize → tools/list(25) → navigate → snapshot → evaluate → close 全链路 3.5 秒。
+>
+> **结论**：优先复用本机已有的 `chromium-1237`，不要盲目下载，也不要升级到 1246+。
 
 **备选**：换官方 CDN：`PLAYWRIGHT_DOWNLOAD_HOST=https://playwright.download.prss.microsoft.com/dbazure/download/playwright`（国内可能慢/不通）。
 
@@ -183,11 +187,11 @@ npx playwright install-deps chromium
 
 ## 问题 11：ping_mcp 显示 25 个工具（旧文档说 24）？
 
-**25 个是正确的**。官方 `@playwright/mcp` v0.0.84（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
+**25 个是正确的**。官方 `@playwright/mcp` v0.0.85（npm stable）的 `browser_*` 工具实际是 25 个（旧文档漏列 `emulate_media`）：
 
 `click` / `close` / `console_messages` / `drag` / `drop` / `evaluate` / `file_upload` / `fill_form` / `find` / `handle_dialog` / `hover` / `navigate` / `navigate_back` / `network_request` / `network_requests` / `press_key` / `resize` / `emulate_media` / `run_code_unsafe` / `select_option` / `snapshot` / `tabs` / `take_screenshot` / `type` / `wait_for`
 
-如果少于 25 个，请先确认版本确实是 **0.0.84**（v0.0.80 及更早为 24 个）：
+如果少于 25 个，请先确认版本确实是 **0.0.85**（v0.0.80 及更早为 24 个）：
 
 ```bash
 cat ~/mcp_plugins/playwrightmcp/bootstrap.log   # 会打印实际使用的 cli.js 路径
@@ -202,11 +206,11 @@ node -e "console.log(require('/usr/lib/node_modules/@playwright/mcp/package.json
 
 ```
 npm error code ETARGET
-npm error notarget No matching version found for playwright-core@1.65.0-alpha-1790635538000.
+npm error notarget No matching version found for playwright-core@1.66.0-alpha-2026-11-09.
 ```
 
-**根因**：`@playwright/mcp@0.0.84` 依赖的是 **alpha 预发布版** 的 playwright-core
-（形如 `1.65.0-alpha-<时间戳>`）。国内镜像 `registry.npmmirror.com` **默认不同步 alpha / prerelease 版本**，
+**根因**：`@playwright/mcp@0.0.85` 依赖的是 **alpha 预发布版** 的 playwright-core
+（形如 `1.66.0-alpha-<时间戳>`）。国内镜像 `registry.npmmirror.com` **默认不同步 alpha / prerelease 版本**，
 所以查不到这个版本号 —— 这与插件本身无关，是镜像同步策略导致的。
 
 **解决**：改用官方源。
@@ -228,7 +232,7 @@ export PW_MCP_NPM_REGISTRY=https://registry.npmjs.org
 
 ```bash
 node -e "console.log(require('@playwright/mcp/package.json').version)"
-# 应输出 0.0.84
+# 应输出 0.0.85
 
 ---
 
@@ -285,3 +289,162 @@ ls ~/.cache/ms-playwright/chromium-1237/chrome-linux/chrome
 ```
 
 ```
+
+---
+
+<a id="mcp-not-responding"></a>
+
+## 问题 14：插件启用了，但 MCP 不响应 / 握手超时
+
+**症状**：启用插件后，AI 侧调用工具长时间无响应，最终报 `MCP server not responding` 或握手超时。
+
+### ✅ 先看 UI：最新 Beta 版会直接告诉你原因
+
+**Operit 1.12.2+2（versionCode 53）起**，MCP 启动桥改成了「失败时把真实原因回传 UI」：
+
+```yaml
+旧版（bridge v52 及更早）：
+  helper 进程启动失败 → 一直等到超时 → UI 只显示「not responding」
+  → 看不出发生了什么，必须自己查进程和日志
+
+新版（versionCode 53+）：
+  helper 在 report ready 之前退出 → 立即把失败原因回传 UI
+  → 会给出 stderr、缺环境变量、入口路径错误、进程崩溃 这几类具体原因
+```
+
+**所以排查顺序应该是：**
+
+```yaml
+1. 先看 Operit UI 的报错（插件页 / MCP 设置页）
+2. UI 已写明原因 → 直接按原因处理，不必跑下面的三查法
+3. UI 只说「超时 / not responding」→ 才继续往下看三查法
+```
+
+> ⚠️ **注意**：这个能力**只在最新 Beta 版（1.12.2+2 / versionCode 53 及以上）才有**。
+> 旧版即使盯着 UI 看也看不出原因，必须靠下面的三查法。
+>
+> 本节的「三查法」对两个版本都适用，只是新版通常不需要走到这一步。
+
+### 先理解启动链
+
+```
+Operit（App） → node /root/bridge/spawn-helper.js → venv/bin/python -m playwrightmcp
+```
+
+`/root/bridge/` 由 App **每次启动时整份释放**。所以：
+
+> **桥没被调用 → 插件不可能起来。**
+
+### ⚠️ 最常见的误判：文件是新的 ≠ 桥被拉起来了
+
+很多人看到 `/root/bridge/index.js` 时间戳是新的，就以为桥已经就绪。实际上：
+
+```yaml
+文件存在且是新的  → 只能说明 App 释放过文件
+                  → 不能说明 App 去调用了它
+```
+
+如果 App 根本没调桥，会同时看到两件事：
+
+```yaml
+桥文件存在、且时间戳很新     ← 果
+进程表里没有任何 bridge 进程  ← 果
+```
+
+**这是同一个原因的两个结果，不是一个导致另一个。** 看到前者不能推出“桥正常”。
+
+### 三查法（按顺序做）
+
+**① 查进程（最关键）**
+
+```bash
+ps aux | grep -E 'bridge|spawn-helper|playwright' | grep -v grep
+```
+
+成功时应看到**三条**：
+
+```yaml
+1. node /root/bridge/index.js
+2. node /root/bridge/spawn-helper.js（通常两个实例）
+3. node .../node_modules/@playwright/mcp/cli.js --headless --no-sandbox --executable-path .../chromium-1237/...
+```
+
+> ⭐ **第三条出现，才等于 MCP 握手成功、插件真的被拉起来。**
+>
+> - 只有前两条 → 桥起来了，但插件没起来
+> - 一条都没有 → App 压根没调桥
+
+**② 查 App 日志**
+
+```bash
+L=$(ls -t /sdcard/Download/Operit/packageLogs/*.log 2>/dev/null | head -1)
+grep -inE 'bridge|mcp|spawn|playwright' "$L" | head -20
+```
+
+如果日志里只有 `loadAvailablePackages start/finish` 这类包扫描行，**没有任何 bridge / mcp / spawn 相关行** → App 这一轮根本没有尝试拉起任何 MCP 插件。
+
+**③ 查插件自举日志（最直接）**
+
+```bash
+cat ~/mcp_plugins/playwrightmcp/bootstrap.log
+```
+
+成功时末尾应有完整记录：
+
+```
+[时间][INFO] 自举启动（插件目录：...）
+[时间][INFO] node = /usr/bin/node
+[时间][INFO] MCP CLI = .../cli.js（来源：插件本地 node_modules）
+[时间][INFO] Chromium = .../chromium-1237/chrome-linux/chrome（build=1237）
+[时间][INFO] 启动 MCP server：...
+```
+
+如果这个文件**不存在，或 mtime 不更新** → 插件根本没被启动过。
+
+### 端到端验证（唯一能证明“能用”的一步）
+
+进程和日志都正常，仍要实际跑一次：
+
+```yaml
+1. browser_navigate → 任意网站
+2. 确认返回里有 Page Title
+3. browser_take_screenshot → 应产出 PNG
+4. 确认文件真的落到磁盘
+```
+
+**只有截图真的生成、页面标题真的读出来，才算闭环。**
+
+### 其他常见误判
+
+**① 有 UI 权限 ≠ 无障碍服务在跑**
+
+工具调用返回：
+
+```
+Accessibility service is not enabled
+```
+
+此时插件本身可能是好的，只是**系统无障碍服务没开**。开启路径：
+
+```
+设置 → 无障碍（辅助功能）→ 已下载的服务 → Operit → 打开 → 允许查看和控制屏幕
+```
+
+这项与插件无关，任何 UI 自动化工具都会受它影响。
+
+**② 只换文件不重启 App**
+
+桥由 App 每次启动时释放，**改完文件必须完全退出 App 再重开**（从后台清掉），否则桥不会重载。
+
+**③ 用 `find /` 扫全盘定位文件**
+
+在手机 / proot 下极慢（很容易超过 20 秒）。改用 `ls -t`、定点 `grep`，或用已知的绝对路径。
+
+### 判别表
+
+| 进程情况 | 含义 | 下一步 |
+|---|---|---|
+| 三条都有（桥 ×2 + cli.js） | 正常 | 直接跑端到端验证 |
+| 只有桥进程，无 cli.js | 插件启动失败 | 看 `bootstrap.log` 找原因 |
+| 一条都没有 | App 没调桥 | 重启 App；确认插件 `isInstalled=true` 且 `disabled=false` |
+| 有 cli.js 但无桥进程 | 异常（几乎不会发生） | 检查是否有残留进程 |

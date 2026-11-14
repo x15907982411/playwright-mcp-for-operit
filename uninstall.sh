@@ -35,7 +35,13 @@ for arg in "$@"; do
     --keep-files) PURGE=0 ;;
     --dry-run)    DRY_RUN=1 ;;
     -h|--help)    sed -n '3,20p' "$0" | sed 's/^# \?//'; exit 0 ;;
-    *) warn "未知参数: $arg（已忽略）" ;;
+    *)
+      # 与 install.sh 保持一致：未知参数直接拒绝。
+      # 之前是 warn 后继续，于是 `--dry-rnu`（拼错）会当成正常卸载真的执行删除。
+      warn "未知参数: $arg"
+      echo "   用法：bash uninstall.sh [--purge|--keep-files] [--dry-run]" >&2
+      exit 2
+      ;;
   esac
 done
 

@@ -38,3 +38,19 @@ jobs:
       - name: 负例回归（验证检查脚本真的会抓问题；顺带回归 3.9/3.12 的 AST 兼容性）
         if: always()  # 前面的自检失败时仍运行：用于区分「仓库漂移」与「检查器坏了」
         run: bash tools/neg_cases.sh
+      - name: 部署失败路径回归（deploy_run_dir）
+        if: always()
+        run: bash tests/test_deploy_rundir.sh
+      - name: keep-deps 回滚回归（commit_keepdeps_files）
+        if: always()
+        run: bash tests/test_keepdeps_rollback.sh
+      - name: 卸载脚本未知参数应拒绝（exit 2）
+        if: always()
+        run: |
+          set +e
+          bash uninstall.sh --dry-rnu >/dev/null 2>&1
+          rc=$?
+          if [ "$rc" -ne 2 ]; then
+            echo "期望 exit 2，实际 $rc"; exit 1
+          fi
+          echo "OK: 未知参数被拒绝"

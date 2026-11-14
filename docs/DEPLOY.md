@@ -20,7 +20,7 @@
 ## 0. 前置检查
 
 ```bash
-node -v && npm -v          # 需要 node >= 18（实测 v24）
+node -v && npm -v          # 需要 node >= 20（实测 v24）
 nproc && uname -m          # 本方案针对 aarch64
 free -m                    # 建议可用内存 >= 1GB（Chromium headless 约占 300-500MB）
 ```
@@ -58,7 +58,7 @@ cp -r /sdcard/Download/Operit/mcp_plugins/playwrightmcp ~/mcp_plugins/
 cd ~/mcp_plugins/playwrightmcp && npm install --no-audit --no-fund --registry https://registry.npmjs.org
 
 # 方式 B：全局安装
-npm i -g @playwright/mcp@0.0.84 --registry https://registry.npmjs.org
+npm i -g @playwright/mcp@0.0.85 --registry https://registry.npmjs.org
 
 # 方式 C：什么都不做 —— 首次启动时转发器会自动补齐（见第 6 节）
 ```
@@ -145,7 +145,7 @@ python3 -m venv venv
 |---|---|---|
 | 1 | `node` | 报错并提示安装方式（可用 `NODE_BIN` 指定） |
 | 2 | MCP 包：插件内 `node_modules` → 全局 `node_modules` | 都没有 → 自动 `npm install`（本地优先，回退全局） |
-| 3 | Chromium：`PLAYWRIGHT_CHROME_BIN` → `~/.cache/ms-playwright`（含 `/root` 与 `PLAYWRIGHT_BROWSERS_PATH`；多个 build 并存时优先 `PW_MCP_PREFERRED_BUILD`＝1237） | 都没有 → 自动 `install-browser chromium`（约 150MB） |
+| 3 | Chromium：`PLAYWRIGHT_CHROME_BIN` → 若设了 `PLAYWRIGHT_BROWSERS_PATH` 则只扫该目录，否则扫 `~/.cache/ms-playwright` 与 `/root/.cache/ms-playwright`（多个 build 并存时优先 `PW_MCP_PREFERRED_BUILD`＝1237） | 都没有 → 自动 `install-browser chromium`（约 150MB） |
 | 4 | 启动 | `exec` 到 `node cli.js --headless --no-sandbox --executable-path <chrome>` |
 
 环境变量（写在 `mcpServers.playwrightmcp.env` 或系统环境中）：
@@ -154,16 +154,16 @@ python3 -m venv venv
 |---|---|---|
 | `NODE_BIN` | 自动 | 指定 node 可执行文件 |
 | `PLAYWRIGHT_CHROME_BIN` | 自动 | 指定 Chromium 可执行文件 |
-| `PW_MCP_VER` | `0.0.84` | 自动安装时的版本 |
+| `PW_MCP_VER` | `0.0.85` | 自动安装时的版本 |
 | `PW_MCP_MIN_BUILD` | `1237` | 低于此 build 仅告警 |
 | `PW_MCP_PREFERRED_BUILD` | `1237` | 多个 build 并存时优先选用（设 `0` 关闭）；proot 下新版 1246+ 会崩，保持 1237 最稳 |
 | `PW_MCP_KNOWN_BAD_MIN` | `1246` | 已知坏 build 下限：选中的 Chromium build >= 此值（且 != 1237）时拒绝启动（防 proot SIGTRAP） |
 | `PW_MCP_AUTO_INSTALL` | `1` | `0` = 不自动安装 MCP 包 |
 | `PW_MCP_AUTO_DOWNLOAD` | `1` | `0` = 不自动下载 Chromium |
-| `PW_MCP_NPM_REGISTRY` | `https://registry.npmjs.org` | npm 源。**默认官方源**（0.0.84 的 alpha 依赖镜像可能未同步，用镜像会报 ETARGET）；如需镜像自行指定 |
+| `PW_MCP_NPM_REGISTRY` | `https://registry.npmjs.org` | npm 源。**默认官方源**（0.0.85 的 alpha 依赖镜像可能未同步，用镜像会报 ETARGET）；如需镜像自行指定 |
 | `PW_MCP_EXTRA_ARGS` | 空 | 追加给 MCP server 的启动参数（空格分隔） |
 | `PW_MCP_LOG_MAX` | `1048576` | 日志轮转阈值（字节），超限转 `bootstrap.log.1` |
-| `PLAYWRIGHT_BROWSERS_PATH` | 自动 | 额外的浏览器搜索目录（Playwright 标准变量） |
+| `PLAYWRIGHT_BROWSERS_PATH` | 自动 | **显式设置后只搜索该目录**，不再扫默认缓存（Playwright 标准变量）；目录不存在时会告警但不会回退 |
 | `PLAYWRIGHT_DOWNLOAD_HOST` | 官方 CDN | 浏览器下载源（Playwright 标准变量；国内可换镜像） |
 
 诊断日志：`~/mcp_plugins/playwrightmcp/bootstrap.log`（同时输出到 stderr，Operit 日志可见）。
