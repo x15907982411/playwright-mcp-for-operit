@@ -11,11 +11,17 @@ permissions:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.9", "3.12"]
+        # 3.9 已 EOL；ubuntu-latest（24.04）的 setup-python 不再提供 3.9 预编译包，
+        # 会卡在「准备 Python」这一步。3.9 固定回到 ubuntu-22.04，其余用最新镜像。
+        include:
+          - python: "3.9"
+            os: ubuntu-22.04
+          - python: "3.12"
+            os: ubuntu-latest
     steps:
       - name: 检出仓库
         uses: actions/checkout@v4
